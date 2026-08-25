@@ -147,6 +147,66 @@ export const TEMPLATES: readonly Template[] = [
       },
     ],
   },
+  {
+    id: "tpl-cart",
+    name: "Carrinho demonstrativo",
+    description: "Notificacao de item adicionado ao carrinho (demo)",
+    seed: 600,
+    timelineMode: "single",
+    events: [
+      {
+        id: "evt-tpl-cart-1",
+        timeMs: 0,
+        title: "Item adicionado ao carrinho (demo)",
+        storeName: "Loja Exemplo",
+        productName: "Produto Demo",
+        quantity: 1,
+        amountCents: 7990,
+        currency: "BRL",
+        buyerAlias: "Usuario Exemplo",
+      },
+    ],
+  },
+  {
+    id: "tpl-subscription",
+    name: "Assinatura confirmada (demo)",
+    description: "Confirmacao de assinatura recorrente (demo)",
+    seed: 700,
+    timelineMode: "single",
+    events: [
+      {
+        id: "evt-tpl-sub-1",
+        timeMs: 0,
+        title: "Assinatura confirmada (demo)",
+        storeName: "Loja Exemplo",
+        productName: "Plano Premium Demo",
+        quantity: 1,
+        amountCents: 29990,
+        currency: "BRL",
+        buyerAlias: "Assinante Exemplo",
+      },
+    ],
+  },
+  {
+    id: "tpl-review",
+    name: "Avaliacao recebida (demo)",
+    description: "Notificacao de nova avaliacao de cliente (demo)",
+    seed: 800,
+    timelineMode: "single",
+    events: [
+      {
+        id: "evt-tpl-rev-1",
+        timeMs: 0,
+        title: "Nova avaliacao recebida (demo)",
+        storeName: "Loja Exemplo",
+        productName: "Produto Exemplo",
+        quantity: 1,
+        amountCents: 0,
+        currency: "BRL",
+        buyerAlias: "Avaliador Exemplo",
+      },
+    ],
+  },
 ];
 
 export function getTemplateById(id: string): Template | undefined {
