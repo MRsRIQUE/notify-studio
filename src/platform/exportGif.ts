@@ -6,7 +6,7 @@ import { assertDisclosureVisible } from "../rendering/drawNotification";
 import { composeFrame } from "../rendering/frameComposer";
 import { frameTimeMs, videoDurationMs } from "../domain/timeline";
 import { encodeGif, rgbaToIndexed, type GifFrame } from "../rendering/gifEncoder";
-import { ExportCancelledError } from "./exportVideo";
+import { ExportCancelledError } from "./exportErrors";
 
 export const GIF_WIDTH = 540;
 export const GIF_HEIGHT = 960;

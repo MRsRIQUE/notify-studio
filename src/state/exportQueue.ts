@@ -4,7 +4,7 @@ import {
   exportAnimated,
   type AnimatedExportResult,
 } from "../platform/exportAnimated";
-import { ExportCancelledError } from "../platform/exportVideo";
+import { ExportCancelledError } from "../platform/exportErrors";
 
 export type ExportJobStatus =
   | "queued"

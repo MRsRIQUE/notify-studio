@@ -22,7 +22,6 @@ import { saveProject } from "../persistence/database";
 import { exportPng, sharePng } from "../platform/exportPng";
 import { playDemoSound, SOUND_PRESETS } from "../platform/sound";
 import { useExportQueue } from "../state/exportQueue";
-import { videoExportSupported } from "../platform/exportVideo";
 
 type Props = {
   project: Project;
@@ -734,17 +733,6 @@ function ExportTab({
   exporting: boolean;
 }) {
   const { jobs, enqueue, cancel } = useExportQueue();
-  const [videoSupported, setVideoSupported] = useState<boolean | null>(null);
-
-  useEffect(() => {
-    let active = true;
-    videoExportSupported().then((ok) => {
-      if (active) setVideoSupported(ok);
-    });
-    return () => {
-      active = false;
-    };
-  }, []);
 
   const activeJob = jobs
     .slice()
@@ -807,12 +795,6 @@ function ExportTab({
         >
           <Text style={styles.exportBtnText}>Exportar GIF</Text>
         </TouchableOpacity>
-      )}
-      {videoSupported === false && (
-        <Text style={styles.exportDesc}>
-          Exportacao em GIF animado (540x960, 12 fps, max 10s) com aviso de
-          demonstracao em todos os frames.
-        </Text>
       )}
       {lastJob?.status === "error" && (
         <Text style={styles.exportDesc}>{lastJob.error}</Text>
