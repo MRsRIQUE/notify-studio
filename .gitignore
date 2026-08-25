@@ -42,3 +42,6 @@ yarn-error.*
 
 # gate artifacts
 .gate-evidence/
+
+# coverage
+coverage/
