@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useCallback } from "react";
+import React, { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import {
   View,
   Text,
@@ -6,6 +6,7 @@ import {
   StyleSheet,
   ScrollView,
   TextInput,
+  Dimensions,
 } from "react-native";
 import { useEditorStore, type EditorTab } from "../state/editorStore";
 import type {
@@ -13,6 +14,7 @@ import type {
   SaleEvent,
   PlatformStyle,
   TimelineMode,
+  DisclosureConfig,
 } from "../domain/types";
 import { generateEvents, DEFAULT_RULES } from "../domain/generator";
 import type { GeneratorRules } from "../domain/generator";
@@ -22,6 +24,8 @@ import { saveProject } from "../persistence/database";
 import { exportPng, sharePng } from "../platform/exportPng";
 import { playDemoSound, SOUND_PRESETS } from "../platform/sound";
 import { useExportQueue } from "../state/exportQueue";
+import { validateDisclosure } from "../domain/disclosure";
+import { disclosureBarMetrics } from "../rendering/drawNotification";
 
 type Props = {
   project: Project;
@@ -51,6 +55,13 @@ const TIMELINE_MODE_LABELS: Record<TimelineMode, string> = {
   growth: "Crescimento",
   manual: "Manual",
 };
+
+function computePreviewSize() {
+  const { width } = Dimensions.get("window");
+  const previewWidth = Math.min(405, width * 0.95);
+  const previewHeight = Math.round(previewWidth * (16 / 9));
+  return { previewWidth, previewHeight };
+}
 
 export function EditorScreen({ project: initialProject, onBack }: Props) {
   const store = useEditorStore();
@@ -154,6 +165,32 @@ export function EditorScreen({ project: initialProject, onBack }: Props) {
     }
   }, [handlePause, project, store]);
 
+  const [disclosureValid, setDisclosureValid] = useState<boolean | null>(null);
+  const validationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (!project) return;
+    if (validationTimerRef.current) clearTimeout(validationTimerRef.current);
+    validationTimerRef.current = setTimeout(() => {
+      const metrics = disclosureBarMetrics({
+        width: CANVAS_WIDTH,
+        height: CANVAS_HEIGHT,
+        style: project.platformStyle,
+        theme: project.theme,
+        disclosure: project.disclosure,
+      });
+      const result = validateDisclosure(project.disclosure, {
+        height: CANVAS_HEIGHT,
+        barY: metrics.barY,
+        barHeight: metrics.barHeight,
+      });
+      setDisclosureValid(result.ok);
+    }, 300);
+    return () => {
+      if (validationTimerRef.current) clearTimeout(validationTimerRef.current);
+    };
+  }, [project?.disclosure, project?.platformStyle, project?.theme]);
+
   if (!project) return null;
 
   const selectedEvent = project.events.find(
@@ -164,6 +201,8 @@ export function EditorScreen({ project: initialProject, onBack }: Props) {
     selectedEvent ??
     project.events[0] ??
     generateEvents(DEFAULT_RULES, 42)[0]!;
+
+  const { previewWidth, previewHeight } = useMemo(computePreviewSize, []);
 
   return (
     <View style={styles.container}>
@@ -181,37 +220,56 @@ export function EditorScreen({ project: initialProject, onBack }: Props) {
         <View style={{ width: 60 }} />
       </View>
 
-      <View style={styles.previewContainer}>
+      <View style={[styles.previewContainer, { width: previewWidth, height: previewHeight }]}>
         <NotificationRenderer
           event={previewEvent}
           style={project.platformStyle}
           theme={project.theme}
           disclosure={project.disclosure}
-          canvasWidth={CANVAS_WIDTH / 3}
-          canvasHeight={CANVAS_HEIGHT / 3}
+          canvasWidth={previewWidth}
+          canvasHeight={previewHeight}
+          playing={playing}
         />
       </View>
 
       <View style={styles.tabBar}>
-        {TABS.map((tab) => (
-          <TouchableOpacity
-            key={tab.key}
-            accessibilityRole="tab"
-            accessibilityLabel={`Aba ${tab.label}`}
-            accessibilityState={{ selected: store.activeTab === tab.key }}
-            style={[styles.tab, store.activeTab === tab.key && styles.tabActive]}
-            onPress={() => store.setActiveTab(tab.key)}
-          >
-            <Text
-              style={[
-                styles.tabText,
-                store.activeTab === tab.key && styles.tabTextActive,
-              ]}
+        {TABS.map((tab) => {
+          const isExportTab = tab.key === "export";
+          return (
+            <TouchableOpacity
+              key={tab.key}
+              accessibilityRole="tab"
+              accessibilityLabel={`Aba ${tab.label}`}
+              accessibilityState={{ selected: store.activeTab === tab.key }}
+              style={[styles.tab, store.activeTab === tab.key && styles.tabActive]}
+              onPress={() => store.setActiveTab(tab.key)}
             >
-              {tab.label}
-            </Text>
-          </TouchableOpacity>
-        ))}
+              <View style={styles.tabLabelContainer}>
+                <Text
+                  style={[
+                    styles.tabText,
+                    store.activeTab === tab.key && styles.tabTextActive,
+                  ]}
+                >
+                  {tab.label}
+                </Text>
+                {isExportTab && disclosureValid !== null && (
+                  <View
+                    style={[
+                      styles.disclosureIndicator,
+                      disclosureValid ? styles.disclosureValid : styles.disclosureInvalid,
+                    ]}
+                    accessibilityLabel={
+                      disclosureValid
+                        ? "Aviso de demonstracao visivel"
+                        : "Aviso de demonstracao fora da area visivel"
+                    }
+                  />
+                )}
+              </View>
+            </TouchableOpacity>
+          );
+        })}
       </View>
 
       <ScrollView style={styles.tabContent} contentContainerStyle={{ padding: 16 }}>
@@ -274,36 +332,58 @@ function ContentTab({
   onRemoveEvent: (id: string) => void;
   onGenerate: () => void;
 }) {
+  const hasEvents = project.events.length > 0;
+
   return (
     <View>
-      <TouchableOpacity
-        style={styles.genBtn}
-        onPress={onGenerate}
-        accessibilityRole="button"
-        accessibilityLabel="Gerar dados demonstrativos"
-      >
-        <Text style={styles.genBtnText}>Gerar dados demonstrativos</Text>
-      </TouchableOpacity>
+      {hasEvents ? (
+        <>
+          <TouchableOpacity
+            style={styles.genBtn}
+            onPress={onGenerate}
+            accessibilityRole="button"
+            accessibilityLabel="Gerar dados demonstrativos"
+          >
+            <Text style={styles.genBtnText}>Gerar dados demonstrativos</Text>
+          </TouchableOpacity>
 
-      {project.events.length > 0 && (
-        <View style={styles.eventList}>
-          {project.events.map((e) => (
-            <TouchableOpacity
-              key={e.id}
-              accessibilityRole="button"
-              accessibilityLabel={`${e.title}, ${e.quantity}x ${e.productName}`}
-              accessibilityState={{ selected: selectedEvent?.id === e.id }}
-              style={[
-                styles.eventItem,
-                selectedEvent?.id === e.id && styles.eventItemActive,
-              ]}
-              onPress={() => onSelectEvent(e.id)}
-            >
-              <Text style={styles.eventItemText} numberOfLines={1}>
-                {e.title} - {e.quantity}x {e.productName}
-              </Text>
-            </TouchableOpacity>
-          ))}
+          <View style={styles.eventList}>
+            {project.events.map((e) => (
+              <TouchableOpacity
+                key={e.id}
+                accessibilityRole="button"
+                accessibilityLabel={`${e.title}, ${e.quantity}x ${e.productName}`}
+                accessibilityState={{ selected: selectedEvent?.id === e.id }}
+                style={[
+                  styles.eventItem,
+                  selectedEvent?.id === e.id && styles.eventItemActive,
+                ]}
+                onPress={() => onSelectEvent(e.id)}
+              >
+                <Text style={styles.eventItemText} numberOfLines={1}>
+                  {e.title} - {e.quantity}x {e.productName}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </>
+      ) : (
+        <View style={styles.emptyContent}>
+          <View style={styles.emptyIllustration}>
+            <Text style={styles.emptyIcon}>🔔</Text>
+          </View>
+          <Text style={styles.emptyText}>Nenhum evento de venda</Text>
+          <Text style={styles.emptyHint}>
+            Adicione eventos manualmente ou gere dados demonstrativos para previsualizar.
+          </Text>
+          <TouchableOpacity
+            style={styles.emptyActionBtn}
+            onPress={onGenerate}
+            accessibilityRole="button"
+            accessibilityLabel="Gerar eventos demonstrativos"
+          >
+            <Text style={styles.emptyActionText}>Gerar eventos demonstrativos</Text>
+          </TouchableOpacity>
         </View>
       )}
 
@@ -891,6 +971,23 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   addEventText: { color: "#5E5CE6", fontSize: 15, fontWeight: "600" },
+  emptyContent: {
+    alignItems: "center",
+    paddingVertical: 32,
+    paddingHorizontal: 24,
+  },
+  emptyIllustration: { marginBottom: 16 },
+  emptyIcon: { fontSize: 56 },
+  emptyText: { fontSize: 18, fontWeight: "600", color: "#333", textAlign: "center" },
+  emptyHint: { fontSize: 14, color: "#888", marginTop: 8, textAlign: "center", lineHeight: 20 },
+  emptyActionBtn: {
+    marginTop: 20,
+    backgroundColor: "#5E5CE6",
+    paddingHorizontal: 24,
+    paddingVertical: 14,
+    borderRadius: 12,
+  },
+  emptyActionText: { color: "#FFF", fontWeight: "600", fontSize: 15 },
   controlRow: { flexDirection: "row", gap: 8 },
   controlBtn: {
     paddingHorizontal: 16,
@@ -925,4 +1022,8 @@ const styles = StyleSheet.create({
   exportBtnDisabled: { opacity: 0.5 },
   cancelBtn: { backgroundColor: "#E53935", marginTop: 8 },
   exportBtnText: { fontSize: 16, fontWeight: "600", color: "#FFF" },
+  tabLabelContainer: { flexDirection: "row", alignItems: "center", gap: 4 },
+  disclosureIndicator: { width: 8, height: 8, borderRadius: 4 },
+  disclosureValid: { backgroundColor: "#34C759" },
+  disclosureInvalid: { backgroundColor: "#FF3B30" },
 });

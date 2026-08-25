@@ -1,6 +1,7 @@
 {
   "name": "notify-studio",
   "version": "1.0.0",
+  "type": "module",
   "main": "index.ts",
   "dependencies": {
     "@react-native-async-storage/async-storage": "2.2.0",

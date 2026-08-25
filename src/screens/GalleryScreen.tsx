@@ -18,6 +18,7 @@ import {
   duplicateProject,
 } from "../persistence/database";
 import { TEMPLATES } from "../domain/templates";
+import { generateEvents, DEFAULT_RULES } from "../domain/generator";
 
 function generateId(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -125,10 +126,21 @@ export function GalleryScreen({ onSelectProject, onNewProject }: Props) {
 
       {projects.length === 0 ? (
         <View style={styles.empty}>
-          <Text style={styles.emptyText}>Nenhum projeto ainda.</Text>
+          <View style={styles.emptyIllustration}>
+            <Text style={styles.emptyIcon}>📱</Text>
+          </View>
+          <Text style={styles.emptyText}>Nenhum projeto ainda</Text>
           <Text style={styles.emptyHint}>
-            Crie um novo projeto ou escolha um template.
+            Crie seu primeiro projeto e comece a simular notificacoes de venda.
           </Text>
+          <TouchableOpacity
+            style={styles.emptyActionBtn}
+            onPress={onNewProject}
+            accessibilityRole="button"
+            accessibilityLabel="Criar primeiro projeto"
+          >
+            <Text style={styles.emptyActionText}>Criar primeiro projeto</Text>
+          </TouchableOpacity>
         </View>
       ) : (
         <FlatList
@@ -264,9 +276,19 @@ const styles = StyleSheet.create({
   header: { paddingTop: 60, paddingHorizontal: 20, paddingBottom: 16 },
   title: { fontSize: 28, fontWeight: "700", color: "#1A1A1A" },
   subtitle: { fontSize: 14, color: "#888", marginTop: 4 },
-  empty: { flex: 1, justifyContent: "center", alignItems: "center" },
-  emptyText: { fontSize: 18, color: "#999" },
-  emptyHint: { fontSize: 14, color: "#BBB", marginTop: 8 },
+  empty: { flex: 1, justifyContent: "center", alignItems: "center", paddingHorizontal: 32 },
+  emptyIllustration: { marginBottom: 16 },
+  emptyIcon: { fontSize: 64 },
+  emptyText: { fontSize: 20, fontWeight: "600", color: "#333", textAlign: "center" },
+  emptyHint: { fontSize: 15, color: "#888", marginTop: 8, textAlign: "center", lineHeight: 22 },
+  emptyActionBtn: {
+    marginTop: 24,
+    backgroundColor: "#5E5CE6",
+    paddingHorizontal: 24,
+    paddingVertical: 14,
+    borderRadius: 12,
+  },
+  emptyActionText: { color: "#FFF", fontWeight: "600", fontSize: 16 },
   list: { padding: 20, gap: 12 },
   card: {
     backgroundColor: "#FFF",
