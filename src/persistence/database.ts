@@ -1,5 +1,7 @@
 import * as SQLite from "expo-sqlite";
 import type { Project, SaleEvent, DisclosureConfig, BackgroundConfig } from "../domain/types";
+import type { Product } from "../domain/product";
+import { SAMPLE_PRODUCTS } from "../domain/sampleProducts";
 
 const DB_NAME = "notify-studio.db";
 
@@ -74,9 +76,69 @@ const MIGRATIONS: Migration[] = [
       );
     },
   },
+  {
+    version: 3,
+    // O fundo do projeto passou a ser realmente renderizado. Ate aqui todos os
+    // projetos carregavam o placeholder 'solid #F2F2F7', que nunca teve efeito
+    // visual e deixaria projetos de tema escuro com fundo claro. Converte esse
+    // placeholder para 'auto' (segue a paleta do tema).
+    up: async (db) => {
+      await db.runAsync(
+        "UPDATE projects SET background_kind = 'auto' WHERE background_kind = 'solid' AND background_color = '#F2F2F7'",
+      );
+    },
+  },
+  {
+    version: 4,
+    // Catalogo de produtos + vinculo com os eventos de venda.
+    up: async (db) => {
+      await db.execAsync(`
+        CREATE TABLE IF NOT EXISTS products (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          price_cents INTEGER NOT NULL,
+          commission_bp INTEGER NOT NULL DEFAULT 0,
+          photo_uri TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+      `);
+      // ALTER TABLE ADD COLUMN nao aceita IF NOT EXISTS no SQLite; a migration
+      // roda uma unica vez, mas protegemos contra bancos ja migrados na mao.
+      const cols = await db.getAllAsync<{ name: string }>(
+        "PRAGMA table_info(project_events)",
+      );
+      const existing = new Set(cols.map((c) => c.name));
+      if (!existing.has("product_id")) {
+        await db.execAsync(
+          "ALTER TABLE project_events ADD COLUMN product_id TEXT",
+        );
+      }
+      if (!existing.has("commission_bp")) {
+        await db.execAsync(
+          "ALTER TABLE project_events ADD COLUMN commission_bp INTEGER",
+        );
+      }
+
+      // Semeia o catalogo para nao nascer vazio na primeira execucao.
+      const now = new Date().toISOString();
+      for (const p of SAMPLE_PRODUCTS) {
+        await db.runAsync(
+          `INSERT OR IGNORE INTO products
+             (id, name, price_cents, commission_bp, photo_uri, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          [p.id, p.name, p.priceCents, p.commissionBp, p.photoUri ?? null, now, now],
+        );
+      }
+    },
+  },
 ];
 
 async function runMigrations(db: SQLite.SQLiteDatabase): Promise<void> {
+  // Bootstrap: a tabela de controle precisa existir antes de ser consultada (instalacao limpa).
+  await db.execAsync(
+    "CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)",
+  );
   const applied = await db.getAllAsync<{ version: number }>(
     "SELECT version FROM schema_migrations ORDER BY version",
   );
@@ -129,6 +191,11 @@ function rowToEvent(row: Record<string, unknown>): SaleEvent {
     amountCents: row.amount_cents as number,
     currency: row.currency as SaleEvent["currency"],
     buyerAlias: (row.buyer_alias as string) || undefined,
+    productId: (row.product_id as string) || undefined,
+    commissionBp:
+      row.commission_bp === null || row.commission_bp === undefined
+        ? undefined
+        : (row.commission_bp as number),
   };
 }
 
@@ -198,8 +265,8 @@ export async function saveProject(project: Project): Promise<void> {
     const e = project.events[i]!;
     await db.runAsync(
       `INSERT INTO project_events
-        (id, project_id, time_ms, title, store_name, product_name, quantity, amount_cents, currency, buyer_alias, sort_order)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        (id, project_id, time_ms, title, store_name, product_name, quantity, amount_cents, currency, buyer_alias, sort_order, product_id, commission_bp)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         e.id,
         project.id,
@@ -212,6 +279,8 @@ export async function saveProject(project: Project): Promise<void> {
         e.currency,
         e.buyerAlias ?? null,
         i,
+        e.productId ?? null,
+        e.commissionBp ?? null,
       ],
     );
   }
@@ -244,4 +313,69 @@ export async function duplicateProject(
   };
   await saveProject(copy);
   return copy;
+}
+
+function rowToProduct(row: Record<string, unknown>): Product {
+  return {
+    id: row.id as string,
+    name: row.name as string,
+    priceCents: row.price_cents as number,
+    commissionBp: row.commission_bp as number,
+    photoUri: (row.photo_uri as string) || undefined,
+    createdAt: row.created_at as string,
+    updatedAt: row.updated_at as string,
+  };
+}
+
+export async function getAllProducts(): Promise<Product[]> {
+  const db = await getDb();
+  const rows = await db.getAllAsync<Record<string, unknown>>(
+    "SELECT * FROM products",
+  );
+  // O COLLATE NOCASE do SQLite so conhece ASCII: comparando por byte, "Serum"
+  // com acento cai depois de "Suporte" e o catalogo aparece fora de ordem para
+  // quem le em portugues. A ordenacao final fica aqui, com localeCompare.
+  return rows
+    .map(rowToProduct)
+    .sort((a, b) =>
+      a.name.localeCompare(b.name, "pt-BR", { sensitivity: "base" }),
+    );
+}
+
+export async function getProduct(id: string): Promise<Product | null> {
+  const db = await getDb();
+  const row = await db.getFirstAsync<Record<string, unknown>>(
+    "SELECT * FROM products WHERE id = ?",
+    [id],
+  );
+  return row ? rowToProduct(row) : null;
+}
+
+export async function saveProduct(product: Product): Promise<void> {
+  const db = await getDb();
+  await db.runAsync(
+    `INSERT OR REPLACE INTO products
+       (id, name, price_cents, commission_bp, photo_uri, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [
+      product.id,
+      product.name,
+      product.priceCents,
+      product.commissionBp,
+      product.photoUri ?? null,
+      product.createdAt,
+      product.updatedAt,
+    ],
+  );
+}
+
+export async function deleteProduct(id: string): Promise<void> {
+  const db = await getDb();
+  // Os eventos ja montados guardam um snapshot (nome, preco, comissao), entao
+  // apagar o produto nao os invalida: so desfaz o vinculo.
+  await db.runAsync(
+    "UPDATE project_events SET product_id = NULL WHERE product_id = ?",
+    [id],
+  );
+  await db.runAsync("DELETE FROM products WHERE id = ?", [id]);
 }

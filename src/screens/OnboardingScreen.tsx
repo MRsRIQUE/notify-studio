@@ -1,27 +1,34 @@
 import React from "react";
-import {
-  View,
-  Text,
-  TouchableOpacity,
-  StyleSheet,
-} from "react-native";
+import { View, Text, StyleSheet } from "react-native";
+import { Button, Screen } from "../ui/components";
+import { Icon, type IconName } from "../ui/Icon";
+import { colors, radius, spacing, typography } from "../ui/theme";
 
 type Props = {
   onComplete: () => void;
 };
 
-const STEPS = [
+type Step = {
+  icon: IconName;
+  title: string;
+  body: string;
+};
+
+const STEPS: Step[] = [
   {
-    title: "Crie cenas demonstrativas",
-    body: "Monte notificacoes de venda visuais para seus videos, anuncios e apresentacoes sem precisar receber pedidos reais.",
+    icon: "bag",
+    title: "Cadastre seus produtos",
+    body: "Informe o preço e a comissão de cada item. O TTS calcula sozinho o faturamento da live e quanto você ganha em cada venda.",
   },
   {
-    title: "Teste notificacoes no aparelho",
-    body: "Dispare notificacoes locais reais no seu proprio celular para ensaiar o momento da gravacao.",
+    icon: "live",
+    title: "Monte a sua live",
+    body: "Escolha quais produtos entram, o ritmo das vendas e a duração. A sequência inteira é agendada antes de começar.",
   },
   {
-    title: "Dados simulados, sempre",
-    body: "Toda saida e identificada como demonstracao com dados simulados. Nenhuma venda real e simulada como verdadeira.",
+    icon: "check",
+    title: "Notificações reais, vendas simuladas",
+    body: "As notificações saem de verdade no seu aparelho, mesmo com o app fechado. O conteúdo é sempre simulado — nenhuma venda real é representada.",
   },
 ];
 
@@ -31,95 +38,93 @@ export function OnboardingScreen({ onComplete }: Props) {
   const isLast = step === STEPS.length - 1;
 
   return (
-    <View style={styles.container}>
+    <Screen edges="both" style={styles.screen}>
+      <View style={styles.dots} accessibilityRole="progressbar">
+        {STEPS.map((s, i) => (
+          <View
+            key={s.title}
+            style={[styles.dot, i === step && styles.dotActive]}
+          />
+        ))}
+      </View>
+
       <View style={styles.content}>
-        <Text style={styles.stepIndicator}>
-          {step + 1} / {STEPS.length}
+        <View style={styles.iconBubble}>
+          <Icon name={current.icon} size={44} color={colors.primary} />
+        </View>
+        <Text style={styles.title} accessibilityRole="header">
+          {current.title}
         </Text>
-        <Text style={styles.title}>{current.title}</Text>
         <Text style={styles.body}>{current.body}</Text>
       </View>
 
       <View style={styles.footer}>
         {step > 0 && (
-          <TouchableOpacity
-          accessibilityRole="button"
-            style={styles.backBtn}
+          <Button
+            label="Voltar"
+            variant="secondary"
             onPress={() => setStep((s) => s - 1)}
-          >
-            <Text style={styles.backText}>Voltar</Text>
-          </TouchableOpacity>
+            style={styles.btnBack}
+          />
         )}
-        <TouchableOpacity
-          accessibilityRole="button"
-          style={styles.nextBtn}
+        <Button
+          label={isLast ? "Começar" : "Próximo"}
           onPress={() => (isLast ? onComplete() : setStep((s) => s + 1))}
-        >
-          <Text style={styles.nextText}>
-            {isLast ? "Comecar" : "Proximo"}
-          </Text>
-        </TouchableOpacity>
+          style={styles.btnNext}
+        />
       </View>
-    </View>
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#FAFAFA",
+  screen: { paddingHorizontal: spacing.xl },
+
+  dots: {
+    flexDirection: "row",
     justifyContent: "center",
-    alignItems: "center",
-    padding: 32,
+    gap: spacing.sm,
+    paddingTop: spacing.xxl,
   },
+  dot: {
+    width: 8,
+    height: 8,
+    borderRadius: radius.pill,
+    backgroundColor: colors.border,
+  },
+  // O passo atual vira uma barra, nao so um ponto mais escuro: a posicao fica
+  // legivel de relance mesmo para quem nao distingue bem as duas cores.
+  dotActive: { width: 26, backgroundColor: colors.primary },
+
   content: {
     flex: 1,
-    justifyContent: "center",
     alignItems: "center",
-    maxWidth: 400,
+    justifyContent: "center",
+    gap: spacing.lg,
   },
-  stepIndicator: {
-    fontSize: 13,
-    color: "#999",
-    marginBottom: 24,
+  iconBubble: {
+    width: 104,
+    height: 104,
+    borderRadius: radius.pill,
+    backgroundColor: colors.primarySoft,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: spacing.sm,
   },
-  title: {
-    fontSize: 26,
-    fontWeight: "700",
-    color: "#1A1A1A",
-    textAlign: "center",
-    marginBottom: 16,
-  },
+  title: { ...typography.display, textAlign: "center" },
   body: {
-    fontSize: 16,
-    color: "#555",
+    ...typography.body,
+    color: colors.textMuted,
     textAlign: "center",
-    lineHeight: 24,
+    lineHeight: 23,
+    maxWidth: 340,
   },
+
   footer: {
     flexDirection: "row",
-    gap: 12,
-    paddingBottom: 40,
+    gap: spacing.md,
+    paddingBottom: spacing.xl,
   },
-  backBtn: {
-    paddingHorizontal: 24,
-    paddingVertical: 14,
-    borderRadius: 12,
-    backgroundColor: "#E8E8E8",
-  },
-  backText: {
-    fontSize: 16,
-    color: "#666",
-  },
-  nextBtn: {
-    paddingHorizontal: 32,
-    paddingVertical: 14,
-    borderRadius: 12,
-    backgroundColor: "#1A1A1A",
-  },
-  nextText: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#FFF",
-  },
+  btnBack: { flexShrink: 1 },
+  btnNext: { flexGrow: 1, flexShrink: 1 },
 });

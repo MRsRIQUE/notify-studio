@@ -1,10 +1,15 @@
 import React, { useMemo, useEffect, useState, useRef, useCallback } from "react";
 import { View } from "react-native";
-import { Canvas, Image, Skia } from "@shopify/react-native-skia";
-import { drawNotification, drawBackground, drawNotificationCard } from "./drawNotification";
+import { Canvas, Picture, Skia } from "@shopify/react-native-skia";
+import { drawBackground, drawNotificationCard } from "./drawNotification";
 import type { RenderSpec, VisualSpec } from "./drawNotification";
-import type { DisclosureConfig, PlatformStyle, SaleEvent } from "../domain/types";
-import { cardAnimAtTime, ENTRY_MS, EXIT_MS, HOLD_MS, FPS } from "../domain/animation";
+import type {
+  BackgroundConfig,
+  DisclosureConfig,
+  PlatformStyle,
+  SaleEvent,
+} from "../domain/types";
+import { cardAnimAtTime, ENTRY_MS, EXIT_MS, HOLD_MS } from "../domain/animation";
 
 export const CANVAS_WIDTH = 1080;
 export const CANVAS_HEIGHT = 1920;
@@ -14,6 +19,7 @@ type Props = {
   style: PlatformStyle;
   theme: "light" | "dark";
   disclosure: DisclosureConfig;
+  background?: BackgroundConfig;
   canvasWidth?: number;
   canvasHeight?: number;
   playing?: boolean;
@@ -29,6 +35,7 @@ export const NotificationRenderer = React.memo(function NotificationRenderer({
   style,
   theme,
   disclosure,
+  background,
   canvasWidth = CANVAS_WIDTH,
   canvasHeight = CANVAS_HEIGHT,
   playing = false,
@@ -47,7 +54,8 @@ export const NotificationRenderer = React.memo(function NotificationRenderer({
     style,
     theme,
     disclosure,
-  }), [canvasWidth, canvasHeight, style, theme, disclosure]);
+    background,
+  }), [canvasWidth, canvasHeight, style, theme, disclosure, background]);
 
   const renderSpec = useMemo<RenderSpec>(() => ({
     ...spec,
@@ -101,29 +109,24 @@ export const NotificationRenderer = React.memo(function NotificationRenderer({
     return cardAnimAtTime(animRef.current, startMs, endMs);
   }, [animTime, event.id]);
 
-  const image = useMemo(() => {
-    const surface = Skia.Surface.MakeOffscreen(canvasWidth, canvasHeight);
-    if (!surface) return null;
-    const canvas = surface.getCanvas();
+  // Grava os comandos de desenho num SkPicture (CPU) em vez de rasterizar numa
+  // superficie offscreen. MakeOffscreen exige contexto de GPU e retornava null
+  // em aparelhos como o moto g04s (Mali/Unisoc), deixando o preview em branco
+  // sem nenhum erro - falha silenciosa. O Picture nao depende de GPU.
+  const picture = useMemo(() => {
+    const recorder = Skia.PictureRecorder();
+    const canvas = recorder.beginRecording(
+      Skia.XYWHRect(0, 0, canvasWidth, canvasHeight),
+    );
     drawBackground(canvas, spec);
     drawNotificationCard(canvas, renderSpec, anim);
-    const img = surface.makeImageSnapshot();
-    surface.dispose();
-    return img;
+    return recorder.finishRecordingAsPicture();
   }, [canvasWidth, canvasHeight, spec, renderSpec, anim]);
 
   return (
     <View style={{ width: canvasWidth, height: canvasHeight }}>
       <Canvas style={{ width: canvasWidth, height: canvasHeight }}>
-        {image && (
-          <Image
-            image={image}
-            x={0}
-            y={0}
-            width={canvasWidth}
-            height={canvasHeight}
-          />
-        )}
+        <Picture picture={picture} />
       </Canvas>
     </View>
   );

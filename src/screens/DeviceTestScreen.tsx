@@ -6,6 +6,7 @@ import {
   StyleSheet,
   ScrollView,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { Project } from "../domain/types";
 import { generateEvents, DEFAULT_RULES } from "../domain/generator";
@@ -16,6 +17,8 @@ import {
   triggerLocalNotification,
 } from "../platform/notifications";
 import * as Notifications from "expo-notifications";
+import { Button, Card, Header, Screen } from "../ui/components";
+import { colors, radius, spacing, typography } from "../ui/theme";
 
 const MAX_DAILY = 20;
 const MAX_PENDING = 48;
@@ -61,6 +64,7 @@ async function saveSentIds(ids: string[]): Promise<void> {
 }
 
 export function DeviceTestScreen({ project, onBack }: Props) {
+  const insets = useSafeAreaInsets();
   const [permissionGranted, setPermissionGranted] = useState<boolean | null>(
     null,
   );
@@ -152,222 +156,170 @@ export function DeviceTestScreen({ project, onBack }: Props) {
     const newIds = sentIds.filter((i) => i !== id);
     setSentIds(newIds);
     await saveSentIds(newIds);
-    setStatus("Notificacao cancelada.");
+    setStatus("Notificação cancelada.");
   };
 
   const handleCancelAll = async () => {
     await Notifications.cancelAllScheduledNotificationsAsync();
     setSentIds([]);
     await saveSentIds([]);
-    setStatus("Todas as notificacoes canceladas.");
+    setStatus("Todas as notificações canceladas.");
   };
 
   return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={{ padding: 20 }}
-    >
-      <View style={styles.topBar}>
-      <TouchableOpacity
-        onPress={onBack}
-        accessibilityRole="button"
-        accessibilityLabel="Voltar"
+    <Screen>
+      <Header title="Teste no aparelho" onBack={onBack} />
+      <ScrollView
+        contentContainerStyle={[
+          styles.content,
+          { paddingBottom: spacing.xxxl + insets.bottom },
+        ]}
       >
-        <Text style={styles.backBtn}>Voltar</Text>
-      </TouchableOpacity>
-        <Text style={styles.title}>Teste no aparelho</Text>
-        <View style={{ width: 60 }} />
-      </View>
-
-      <View style={styles.infoCard}>
-        <Text style={styles.infoTitle}>Como funciona?</Text>
-        <Text style={styles.infoBody}>
-          Esta funcionalidade dispara notificacoes reais no seu aparelho. A
-          aparencia final depende do sistema operacional, tema e configuracoes
-          do usuario. Nao e possivel garantir fidelidade visual exata.
-        </Text>
-      </View>
-
-      {permissionGranted === false && (
-        <View style={styles.warningCard}>
-          <Text style={styles.warningText}>
-            Permissao necessaria. Conceda acesso a notificacoes nas
-            configuracoes do sistema.
+        <Card>
+          <Text style={styles.infoTitle}>Como funciona?</Text>
+          <Text style={styles.infoBody}>
+            Esta funcionalidade dispara notificações reais no seu aparelho. A
+            aparência final depende do sistema operacional, do tema e das
+            configurações do usuário — não é possível garantir fidelidade
+            visual exata.
           </Text>
-        </View>
-      )}
+        </Card>
 
-      {permissionGranted === null && (
-        <TouchableOpacity
-          accessibilityRole="button"
-          style={styles.primaryBtn}
-          onPress={handleRequestPermission}
-        >
-          <Text style={styles.primaryText}>Solicitar permissao</Text>
-        </TouchableOpacity>
-      )}
-
-      {permissionGranted === true && (
-        <>
-          <TouchableOpacity
-          accessibilityRole="button"
-            style={styles.primaryBtn}
-            onPress={handleFireImmediate}
-          >
-            <Text style={styles.primaryText}>
-              Disparar notificacao imediata
+        {permissionGranted === false && (
+          <View style={styles.warningCard}>
+            <Text style={styles.warningText}>
+              Permissão necessária. Conceda acesso às notificações nas
+              configurações do sistema.
             </Text>
-          </TouchableOpacity>
-
-          <View style={styles.statsRow}>
-            <View style={styles.stat}>
-              <Text style={styles.statValue}>{sentToday}</Text>
-              <Text style={styles.statLabel}>Enviadas hoje</Text>
-            </View>
-            <View style={styles.stat}>
-              <Text style={styles.statValue}>{sentIds.length}</Text>
-              <Text style={styles.statLabel}>Pendentes</Text>
-            </View>
           </View>
+        )}
 
-          {sentIds.length > 0 && (
-            <>
-              <Text style={styles.sectionTitle}>
-                Notificacoes pendentes
-              </Text>
-              {sentIds.map((id) => (
-                <View key={id} style={styles.notifItem}>
-                  <Text style={styles.notifId} numberOfLines={1}>
-                    {id}
-                  </Text>
-                  <TouchableOpacity
-                    onPress={() => handleCancelOne(id)}
-                    accessibilityRole="button"
-                    accessibilityLabel="Cancelar notificação agendada"
-                  >
-                    <Text style={styles.cancelText}>Cancelar</Text>
-                  </TouchableOpacity>
-                </View>
-              ))}
-              <TouchableOpacity
-          accessibilityRole="button"
-                style={styles.cancelAllBtn}
-                onPress={handleCancelAll}
-              >
-                <Text style={styles.cancelAllText}>Cancelar todas</Text>
-              </TouchableOpacity>
-            </>
-          )}
-        </>
-      )}
+        {permissionGranted === null && (
+          <Button
+            label="Solicitar permissão"
+            onPress={handleRequestPermission}
+            style={styles.action}
+          />
+        )}
 
-      {status && (
-        <View style={styles.statusBar}>
-          <Text style={styles.statusText}>{status}</Text>
-        </View>
-      )}
+        {permissionGranted === true && (
+          <>
+            <Button
+              label="Disparar notificação imediata"
+              icon="live"
+              onPress={handleFireImmediate}
+              style={styles.action}
+            />
 
-      <View style={styles.limitsCard}>
-        <Text style={styles.limitsTitle}>Limites</Text>
-        <Text style={styles.limitsText}>
-          Maximo {MAX_DAILY} testes por dia
-        </Text>
-        <Text style={styles.limitsText}>
-          Maximo {MAX_PENDING} notificacoes pendentes
-        </Text>
-        <Text style={styles.limitsText}>Sem recorrencia infinita</Text>
-        <Text style={styles.limitsText}>
-          Cancelamento sempre disponivel
-        </Text>
-      </View>
-    </ScrollView>
+            <View style={styles.statsRow}>
+              <Card style={styles.stat}>
+                <Text style={styles.statValue}>{sentToday}</Text>
+                <Text style={styles.statLabel}>Enviadas hoje</Text>
+              </Card>
+              <Card style={styles.stat}>
+                <Text style={styles.statValue}>{sentIds.length}</Text>
+                <Text style={styles.statLabel}>Pendentes</Text>
+              </Card>
+            </View>
+
+            {sentIds.length > 0 && (
+              <>
+                <Text style={styles.sectionTitle}>Notificações pendentes</Text>
+                {sentIds.map((id) => (
+                  <View key={id} style={styles.notifItem}>
+                    <Text style={styles.notifId} numberOfLines={1}>
+                      {id}
+                    </Text>
+                    <TouchableOpacity
+                      onPress={() => handleCancelOne(id)}
+                      accessibilityRole="button"
+                      accessibilityLabel="Cancelar notificação agendada"
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
+                      <Text style={styles.cancelText}>Cancelar</Text>
+                    </TouchableOpacity>
+                  </View>
+                ))}
+                <Button
+                  label="Cancelar todas"
+                  icon="trash"
+                  variant="danger"
+                  onPress={handleCancelAll}
+                  style={styles.action}
+                />
+              </>
+            )}
+          </>
+        )}
+
+        {status && (
+          <View style={styles.statusBar}>
+            <Text style={styles.statusText}>{status}</Text>
+          </View>
+        )}
+
+        <Card style={styles.limitsCard}>
+          <Text style={styles.limitsTitle}>Limites</Text>
+          <Text style={styles.limitsText}>Máximo {MAX_DAILY} testes por dia</Text>
+          <Text style={styles.limitsText}>
+            Máximo {MAX_PENDING} notificações pendentes
+          </Text>
+          <Text style={styles.limitsText}>Sem recorrência infinita</Text>
+          <Text style={styles.limitsText}>Cancelamento sempre disponível</Text>
+        </Card>
+      </ScrollView>
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#FAFAFA" },
-  topBar: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingTop: 50,
-    paddingBottom: 16,
-  },
-  backBtn: { fontSize: 16, color: "#5E5CE6" },
-  title: { fontSize: 18, fontWeight: "700" },
-  infoCard: {
-    backgroundColor: "#FFF",
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: "#EEE",
-  },
-  infoTitle: { fontSize: 16, fontWeight: "600", marginBottom: 8 },
-  infoBody: { fontSize: 14, color: "#555", lineHeight: 20 },
+  content: { paddingHorizontal: spacing.xl, gap: spacing.lg },
+
+  infoTitle: { ...typography.subtitle, marginBottom: spacing.sm },
+  infoBody: { ...typography.body, color: colors.textMuted, lineHeight: 21 },
+
   warningCard: {
-    backgroundColor: "#FFF3CD",
-    borderRadius: 10,
-    padding: 14,
-    marginBottom: 16,
+    backgroundColor: colors.dangerSoft,
+    borderRadius: radius.md,
+    padding: spacing.lg,
   },
-  warningText: { fontSize: 14, color: "#856404" },
-  primaryBtn: {
-    backgroundColor: "#1A1A1A",
-    padding: 16,
-    borderRadius: 12,
-    alignItems: "center",
-    marginBottom: 16,
-  },
-  primaryText: { fontSize: 16, fontWeight: "600", color: "#FFF" },
-  statsRow: { flexDirection: "row", gap: 16, marginBottom: 16 },
-  stat: {
-    flex: 1,
-    backgroundColor: "#FFF",
-    borderRadius: 12,
-    padding: 16,
-    alignItems: "center",
-  },
-  statValue: { fontSize: 24, fontWeight: "700" },
-  statLabel: { fontSize: 12, color: "#888", marginTop: 4 },
+  warningText: { ...typography.body, fontSize: 14, color: colors.danger },
+
+  action: { marginTop: spacing.xs },
+
+  statsRow: { flexDirection: "row", gap: spacing.lg },
+  stat: { flex: 1, alignItems: "center" },
+  statValue: { ...typography.display, color: colors.primary },
+  statLabel: { ...typography.label, marginTop: spacing.xs },
+
   sectionTitle: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: "#999",
-    marginBottom: 8,
+    ...typography.label,
     textTransform: "uppercase",
+    letterSpacing: 0.6,
   },
   notifItem: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    backgroundColor: "#FFF",
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 6,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    padding: spacing.md,
+    marginBottom: spacing.sm,
+    gap: spacing.md,
   },
-  notifId: { fontSize: 12, color: "#888", flex: 1, marginRight: 8 },
-  cancelText: { color: "#E53935", fontSize: 13 },
-  cancelAllBtn: {
-    padding: 12,
-    alignItems: "center",
-    marginTop: 8,
-  },
-  cancelAllText: { color: "#E53935", fontSize: 14, fontWeight: "600" },
+  notifId: { ...typography.caption, fontSize: 12, flex: 1 },
+  cancelText: { ...typography.button, fontSize: 13, color: colors.danger },
+
   statusBar: {
-    backgroundColor: "#F0F0F0",
-    borderRadius: 8,
-    padding: 12,
-    marginTop: 16,
+    backgroundColor: colors.primarySoft,
+    borderRadius: radius.md,
+    padding: spacing.md,
   },
-  statusText: { fontSize: 14, color: "#333" },
-  limitsCard: {
-    backgroundColor: "#F5F5F5",
-    borderRadius: 12,
-    padding: 16,
-    marginTop: 24,
-    marginBottom: 40,
-  },
-  limitsTitle: { fontSize: 15, fontWeight: "600", marginBottom: 8 },
-  limitsText: { fontSize: 13, color: "#666", marginBottom: 4 },
+  statusText: { ...typography.body, fontSize: 14, color: colors.primaryDark },
+
+  limitsCard: { backgroundColor: colors.surfaceAlt, gap: spacing.xs },
+  limitsTitle: { ...typography.subtitle, fontSize: 15, marginBottom: spacing.xs },
+  limitsText: { ...typography.caption },
 });

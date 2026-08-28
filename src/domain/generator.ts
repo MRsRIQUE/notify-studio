@@ -1,4 +1,5 @@
 import type { SaleEvent } from "./types";
+import type { Product } from "./product";
 
 export type GeneratorRules = {
   quantityMin: number;
@@ -113,4 +114,38 @@ export function regenerateEvent(
     quantity: qMin + Math.floor(rand() * (qMax - qMin + 1)),
     amountCents: aMin + Math.floor(rand() * (aMax - aMin + 1)),
   };
+}
+
+/**
+ * Gera a timeline a partir do catalogo de produtos.
+ *
+ * Reaproveita generateEvents para o timing (intervalos, curva, quantidade) e
+ * so sobrepoe os dados do produto sorteado. O valor deixa de ser aleatorio e
+ * passa a ser o preco real cadastrado; nome e comissao vem junto como
+ * snapshot, para o evento sobreviver a edicao ou exclusao do produto.
+ *
+ * Determinista: mesma seed + mesmo catalogo => mesma saida.
+ */
+export function generateEventsFromProducts(
+  products: readonly Product[],
+  rules: GeneratorRules,
+  seed: number,
+): SaleEvent[] {
+  const base = generateEvents(rules, seed);
+  if (products.length === 0) return base;
+
+  // Stream de aleatoriedade proprio, para a escolha de produto nao deslocar a
+  // sequencia usada pelo timing.
+  const rand = mulberry32((seed ^ 0x9e3779b9) >>> 0);
+
+  return base.map((event) => {
+    const product = products[Math.floor(rand() * products.length)]!;
+    return {
+      ...event,
+      productName: product.name,
+      amountCents: product.priceCents,
+      productId: product.id,
+      commissionBp: product.commissionBp,
+    };
+  });
 }

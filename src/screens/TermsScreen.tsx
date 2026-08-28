@@ -6,8 +6,12 @@ import {
   StyleSheet,
   ScrollView,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { PRIVACY_POLICY, TERMS_OF_USE } from "../legal/documents";
 import type { LegalDocument } from "../legal/documents";
+import { Button, Card, Screen } from "../ui/components";
+import { Icon } from "../ui/Icon";
+import { colors, radius, spacing, typography } from "../ui/theme";
 
 type Props = {
   onAccept: () => void;
@@ -15,7 +19,7 @@ type Props = {
 
 function DocumentSection({ doc }: { doc: LegalDocument }) {
   return (
-    <View style={styles.docBlock}>
+    <Card style={styles.docCard}>
       <Text style={styles.docTitle} accessibilityRole="header">
         {doc.title}
       </Text>
@@ -30,29 +34,33 @@ function DocumentSection({ doc }: { doc: LegalDocument }) {
       <Text style={styles.versionText}>
         Versão {doc.version} · atualizado em {doc.updatedAt}
       </Text>
-    </View>
+    </Card>
   );
 }
 
 export function TermsScreen({ onAccept }: Props) {
   const [accepted, setAccepted] = useState(false);
+  // App em edge-to-edge: o Screen cuida do topo, mas o rodape flutua sobre o
+  // ScrollView e precisa do inset proprio — sem ele o botao de aceite fica sob
+  // a barra de gestos, impossivel de tocar.
+  const insets = useSafeAreaInsets();
 
   return (
-    <View style={styles.container}>
+    <Screen>
       <ScrollView contentContainerStyle={styles.content}>
         <Text style={styles.title} accessibilityRole="header">
-          Bem-vindo ao NotifyStudio
+          Bem-vindo ao TTS
         </Text>
         <Text style={styles.intro}>
           Antes de continuar, leia e aceite a Política de Privacidade e os
-          Termos de Uso. O aplicativo não coleta dados: tudo fica apenas no
-          seu aparelho e todo o conteúdo é simulado.
+          Termos de Uso. O aplicativo não coleta dados: tudo fica apenas no seu
+          aparelho e todo o conteúdo é simulado.
         </Text>
         <DocumentSection doc={PRIVACY_POLICY} />
         <DocumentSection doc={TERMS_OF_USE} />
       </ScrollView>
 
-      <View style={styles.footer}>
+      <View style={[styles.footer, { paddingBottom: spacing.xl + insets.bottom }]}>
         <TouchableOpacity
           style={styles.checkRow}
           accessibilityRole="checkbox"
@@ -65,72 +73,78 @@ export function TermsScreen({ onAccept }: Props) {
             accessibilityElementsHidden
             importantForAccessibility="no-hide-descendants"
           >
-            {accepted && <Text style={styles.checkmark}>✓</Text>}
+            {accepted && (
+              <Icon name="check" size={16} color={colors.textOnPrimary} />
+            )}
           </View>
           <Text style={styles.checkLabel}>
             Li e aceito a Política de Privacidade e os Termos de Uso
           </Text>
         </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.acceptBtn, !accepted && styles.acceptBtnDisabled]}
-          accessibilityRole="button"
-          accessibilityLabel="Continuar"
-          accessibilityState={{ disabled: !accepted }}
-          disabled={!accepted}
+        <Button
+          label="Continuar"
           onPress={onAccept}
-        >
-          <Text style={styles.acceptBtnText}>Continuar</Text>
-        </TouchableOpacity>
+          disabled={!accepted}
+          style={styles.acceptBtn}
+        />
       </View>
-    </View>
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#FAFAFA" },
-  content: { padding: 24, paddingBottom: 40 },
-  title: { fontSize: 26, fontWeight: "700", color: "#1A1A1A" },
-  intro: { fontSize: 15, color: "#555", marginTop: 12, lineHeight: 22 },
-  docBlock: { marginTop: 28 },
-  docTitle: { fontSize: 20, fontWeight: "700", color: "#1A1A1A" },
-  sectionHeading: {
-    fontSize: 15,
-    fontWeight: "600",
-    color: "#333",
-    marginTop: 14,
+  content: {
+    paddingHorizontal: spacing.xl,
+    paddingTop: spacing.xl,
+    paddingBottom: spacing.xxxl,
   },
-  sectionBody: { fontSize: 14, color: "#555", marginTop: 4, lineHeight: 21 },
-  versionText: { fontSize: 12, color: "#999", marginTop: 10 },
+  title: { ...typography.display },
+  intro: {
+    ...typography.body,
+    color: colors.textMuted,
+    marginTop: spacing.md,
+    lineHeight: 22,
+  },
+
+  docCard: { marginTop: spacing.xl, gap: spacing.xs },
+  docTitle: { ...typography.title },
+  sectionHeading: { ...typography.subtitle, fontSize: 15, marginTop: spacing.md },
+  sectionBody: {
+    ...typography.body,
+    fontSize: 14,
+    color: colors.textMuted,
+    marginTop: spacing.xs,
+    lineHeight: 21,
+  },
+  versionText: { ...typography.label, marginTop: spacing.md },
+
   footer: {
-    padding: 20,
+    paddingHorizontal: spacing.xl,
+    paddingTop: spacing.lg,
     borderTopWidth: 1,
-    borderTopColor: "#EEE",
-    backgroundColor: "#FFF",
+    borderTopColor: colors.border,
+    backgroundColor: colors.surface,
   },
   checkRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: spacing.md,
   },
   checkbox: {
-    width: 24,
-    height: 24,
-    borderRadius: 6,
+    width: 26,
+    height: 26,
+    borderRadius: radius.sm,
     borderWidth: 2,
-    borderColor: "#5E5CE6",
+    borderColor: colors.primary,
     alignItems: "center",
     justifyContent: "center",
   },
-  checkboxChecked: { backgroundColor: "#5E5CE6" },
-  checkmark: { color: "#FFF", fontSize: 15, fontWeight: "700" },
-  checkLabel: { flex: 1, fontSize: 14, color: "#333", lineHeight: 19 },
-  acceptBtn: {
-    backgroundColor: "#5E5CE6",
-    padding: 16,
-    borderRadius: 12,
-    alignItems: "center",
-    marginTop: 16,
+  checkboxChecked: { backgroundColor: colors.primary },
+  checkLabel: {
+    ...typography.body,
+    fontSize: 14,
+    flex: 1,
+    lineHeight: 19,
   },
-  acceptBtnDisabled: { opacity: 0.4 },
-  acceptBtnText: { color: "#FFF", fontWeight: "600", fontSize: 16 },
+  acceptBtn: { marginTop: spacing.lg },
 });

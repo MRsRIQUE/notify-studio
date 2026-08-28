@@ -25,13 +25,28 @@ export type SaleEvent = {
   readonly currency: "BRL" | "USD" | "EUR";
   readonly buyerAlias?: string;
   readonly soundId?: string;
+  /** Produto do catalogo que originou o evento (ausente em eventos manuais). */
+  readonly productId?: string;
+  /**
+   * Comissao em basis points copiada do produto no momento em que o evento foi
+   * criado. E um snapshot de proposito: editar o produto depois nao deve
+   * reescrever eventos ja montados na timeline.
+   */
+  readonly commissionBp?: number;
 };
 
+// "auto" segue a paleta do tema (padrao); "solid"/"gradient" usam as cores
+// escolhidas pelo usuario e sobrescrevem o fundo da paleta.
 export type BackgroundConfig = {
-  readonly kind: "solid" | "gradient";
+  readonly kind: "auto" | "solid" | "gradient";
   readonly color: string;
   readonly colorEnd?: string;
 };
+
+export const DEFAULT_BACKGROUND: BackgroundConfig = {
+  kind: "auto",
+  color: "#F2F2F7",
+} as const;
 
 export type Project = {
   readonly id: string;

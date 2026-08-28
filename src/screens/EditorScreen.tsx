@@ -6,35 +6,47 @@ import {
   StyleSheet,
   ScrollView,
   TextInput,
-  Dimensions,
+  useWindowDimensions,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useEditorStore, type EditorTab } from "../state/editorStore";
 import type {
   Project,
   SaleEvent,
   PlatformStyle,
   TimelineMode,
-  DisclosureConfig,
+  BackgroundConfig,
 } from "../domain/types";
-import { generateEvents, DEFAULT_RULES } from "../domain/generator";
+import {
+  generateEvents,
+  generateEventsFromProducts,
+  DEFAULT_RULES,
+} from "../domain/generator";
+import { commissionCents } from "../domain/product";
+import type { Product } from "../domain/product";
 import type { GeneratorRules } from "../domain/generator";
 import { formatCurrency } from "../domain/currency";
+import { computePreviewSize } from "../domain/previewLayout";
 import { NotificationRenderer, CANVAS_WIDTH, CANVAS_HEIGHT } from "../rendering/NotificationRenderer";
-import { saveProject } from "../persistence/database";
+import { saveProject, getAllProducts } from "../persistence/database";
 import { exportPng, sharePng } from "../platform/exportPng";
+import { shareGif } from "../platform/share";
 import { playDemoSound, SOUND_PRESETS } from "../platform/sound";
 import { useExportQueue } from "../state/exportQueue";
 import { validateDisclosure } from "../domain/disclosure";
 import { disclosureBarMetrics } from "../rendering/drawNotification";
+import { Button, EmptyState, Header, Screen } from "../ui/components";
+import { colors, radius, shadow, spacing, typography } from "../ui/theme";
 
 type Props = {
   project: Project;
   onBack: () => void;
+  onDeviceTest?: (project: Project) => void;
 };
 
 const TABS: { key: EditorTab; label: string }[] = [
-  { key: "content", label: "Conteudo" },
-  { key: "appearance", label: "Aparencia" },
+  { key: "content", label: "Conteúdo" },
+  { key: "appearance", label: "Aparência" },
   { key: "timeline", label: "Timeline" },
   { key: "export", label: "Exportar" },
 ];
@@ -49,24 +61,48 @@ const TIMELINE_MODES: TimelineMode[] = [
 ];
 
 const TIMELINE_MODE_LABELS: Record<TimelineMode, string> = {
-  single: "Unico",
+  single: "Único",
   regular: "Regular",
   burst: "Rajada",
   growth: "Crescimento",
   manual: "Manual",
 };
 
-function computePreviewSize() {
-  const { width } = Dimensions.get("window");
-  const previewWidth = Math.min(405, width * 0.95);
-  const previewHeight = Math.round(previewWidth * (16 / 9));
-  return { previewWidth, previewHeight };
-}
+const BACKGROUND_KINDS: BackgroundConfig["kind"][] = [
+  "auto",
+  "solid",
+  "gradient",
+];
 
-export function EditorScreen({ project: initialProject, onBack }: Props) {
+const BACKGROUND_KIND_LABELS: Record<BackgroundConfig["kind"], string> = {
+  auto: "Automático",
+  solid: "Sólido",
+  gradient: "Gradiente",
+};
+
+// Presets de fundo com contraste suficiente para a barra de aviso
+// (rgba(0,0,0,0.75) + texto branco) e para o card.
+const BACKGROUND_PRESETS: { label: string; color: string; colorEnd: string }[] = [
+  { label: "Neutro", color: "#F2F2F7", colorEnd: "#D8D8E0" },
+  { label: "Grafite", color: "#0B0B0F", colorEnd: "#2A2A33" },
+  { label: "Indigo", color: "#5E5CE6", colorEnd: "#2C2A9E" },
+  { label: "Verde", color: "#3DDC84", colorEnd: "#0F7A45" },
+  { label: "Coral", color: "#FF6B6B", colorEnd: "#B32D2D" },
+  { label: "Areia", color: "#F6E3C5", colorEnd: "#C9A46A" },
+];
+
+export function EditorScreen({
+  project: initialProject,
+  onBack,
+  onDeviceTest,
+}: Props) {
   const store = useEditorStore();
+  const insets = useSafeAreaInsets();
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const [playing, setPlaying] = useState(false);
+  const [catalog, setCatalog] = useState<readonly Product[]>([]);
   const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
   const playTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
   const initialProjectRef = useRef(initialProject);
   const setProjectRef = useRef(store.setProject);
@@ -89,6 +125,35 @@ export function EditorScreen({ project: initialProject, onBack }: Props) {
 
   const project = store.project;
 
+  useEffect(() => {
+    let cancelado = false;
+    getAllProducts()
+      .then((p) => {
+        if (!cancelado) setCatalog(p);
+      })
+      .catch(() => {
+        // Catalogo indisponivel: o gerador cai no modo sem produtos.
+      });
+    return () => {
+      cancelado = true;
+    };
+  }, []);
+
+  const selectedEvent = useMemo(
+    () => project?.events.find((e) => e.id === store.selectedEventId),
+    [project?.events, store.selectedEventId],
+  );
+
+  // Evento mostrado no preview e usado no export PNG: o selecionado, senao o
+  // primeiro do projeto, senao um evento sintetico (projeto vazio).
+  const previewEvent = useMemo(
+    () =>
+      selectedEvent ??
+      project?.events[0] ??
+      generateEvents(DEFAULT_RULES, 42)[0]!,
+    [selectedEvent, project?.events],
+  );
+
   const handleSave = useCallback(async () => {
     if (project) await saveProject(project);
   }, [project]);
@@ -105,30 +170,36 @@ export function EditorScreen({ project: initialProject, onBack }: Props) {
     const curve: GeneratorRules["curve"] =
       mode === "burst" ? "burst" : mode === "growth" ? "growth" : "constant";
     const rules = { ...DEFAULT_RULES, durationMs: 30000, curve };
-    const events = generateEvents(rules, seed);
+    const events =
+      catalog.length > 0
+        ? generateEventsFromProducts(catalog, rules, seed)
+        : generateEvents(rules, seed);
     store.reorderEvents(events);
-  }, [store, project?.timelineMode]);
+  }, [store, project?.timelineMode, catalog]);
 
   const handleExport = useCallback(async () => {
     if (!project) return;
     setExporting(true);
+    setExportError(null);
     try {
-      const event = project.events[0] ?? generateEvents(DEFAULT_RULES, 42)[0]!;
       const uri = await exportPng({
         width: CANVAS_WIDTH,
         height: CANVAS_HEIGHT,
-        event,
+        event: previewEvent,
         style: project.platformStyle,
         theme: project.theme,
         disclosure: project.disclosure,
+        background: project.background,
       });
       await sharePng(uri);
     } catch (err) {
-      console.error("Export failed:", err);
+      setExportError(
+        err instanceof Error ? err.message : "Falha ao exportar o PNG.",
+      );
     } finally {
       setExporting(false);
     }
-  }, [project]);
+  }, [project, previewEvent]);
 
   const handlePlay = useCallback(() => {
     if (!project || project.events.length === 0) return;
@@ -191,34 +262,24 @@ export function EditorScreen({ project: initialProject, onBack }: Props) {
     };
   }, [project?.disclosure, project?.platformStyle, project?.theme]);
 
-  if (!project) return null;
-
-  const selectedEvent = project.events.find(
-    (e) => e.id === store.selectedEventId,
+  const { previewWidth, previewHeight } = useMemo(
+    () =>
+      computePreviewSize(windowWidth, windowHeight, insets.top + insets.bottom),
+    [windowWidth, windowHeight, insets.top, insets.bottom],
   );
 
-  const previewEvent =
-    selectedEvent ??
-    project.events[0] ??
-    generateEvents(DEFAULT_RULES, 42)[0]!;
-
-  const { previewWidth, previewHeight } = useMemo(computePreviewSize, []);
+  if (!project) return null;
 
   return (
-    <View style={styles.container}>
-      <View style={styles.topBar}>
-        <TouchableOpacity
-          onPress={() => { handleSave(); onBack(); }}
-          accessibilityRole="button"
-          accessibilityLabel="Voltar e salvar"
-        >
-          <Text style={styles.backBtn}>Voltar</Text>
-        </TouchableOpacity>
-        <Text style={styles.projectName} numberOfLines={1}>
-          {project.name}
-        </Text>
-        <View style={{ width: 60 }} />
-      </View>
+    <Screen>
+      <Header
+        title={project.name}
+        subtitle="Toque em voltar para salvar"
+        onBack={() => {
+          handleSave();
+          onBack();
+        }}
+      />
 
       <View style={[styles.previewContainer, { width: previewWidth, height: previewHeight }]}>
         <NotificationRenderer
@@ -226,6 +287,7 @@ export function EditorScreen({ project: initialProject, onBack }: Props) {
           style={project.platformStyle}
           theme={project.theme}
           disclosure={project.disclosure}
+          background={project.background}
           canvasWidth={previewWidth}
           canvasHeight={previewHeight}
           playing={playing}
@@ -261,8 +323,8 @@ export function EditorScreen({ project: initialProject, onBack }: Props) {
                     ]}
                     accessibilityLabel={
                       disclosureValid
-                        ? "Aviso de demonstracao visivel"
-                        : "Aviso de demonstracao fora da area visivel"
+                        ? "Aviso de demonstração visível"
+                        : "Aviso de demonstração fora da área visível"
                     }
                   />
                 )}
@@ -272,7 +334,10 @@ export function EditorScreen({ project: initialProject, onBack }: Props) {
         })}
       </View>
 
-      <ScrollView style={styles.tabContent} contentContainerStyle={{ padding: 16 }}>
+      <ScrollView
+        style={styles.tabContent}
+        contentContainerStyle={{ padding: 16, paddingBottom: 16 + insets.bottom }}
+      >
         {store.activeTab === "content" && (
           <ContentTab
             project={project}
@@ -308,10 +373,14 @@ export function EditorScreen({ project: initialProject, onBack }: Props) {
             project={project}
             onExport={handleExport}
             exporting={exporting}
+            exportError={exportError}
+            onDeviceTest={
+              onDeviceTest ? () => { handleSave(); onDeviceTest(project); } : undefined
+            }
           />
         )}
       </ScrollView>
-    </View>
+    </Screen>
   );
 }
 
@@ -338,14 +407,12 @@ function ContentTab({
     <View>
       {hasEvents ? (
         <>
-          <TouchableOpacity
-            style={styles.genBtn}
+          <Button
+            label="Gerar dados demonstrativos"
+            icon="plus"
             onPress={onGenerate}
-            accessibilityRole="button"
-            accessibilityLabel="Gerar dados demonstrativos"
-          >
-            <Text style={styles.genBtnText}>Gerar dados demonstrativos</Text>
-          </TouchableOpacity>
+            style={styles.genBtn}
+          />
 
           <View style={styles.eventList}>
             {project.events.map((e) => (
@@ -369,27 +436,24 @@ function ContentTab({
         </>
       ) : (
         <View style={styles.emptyContent}>
-          <View style={styles.emptyIllustration}>
-            <Text style={styles.emptyIcon}>🔔</Text>
-          </View>
-          <Text style={styles.emptyText}>Nenhum evento de venda</Text>
-          <Text style={styles.emptyHint}>
-            Adicione eventos manualmente ou gere dados demonstrativos para previsualizar.
-          </Text>
-          <TouchableOpacity
-            style={styles.emptyActionBtn}
-            onPress={onGenerate}
-            accessibilityRole="button"
-            accessibilityLabel="Gerar eventos demonstrativos"
-          >
-            <Text style={styles.emptyActionText}>Gerar eventos demonstrativos</Text>
-          </TouchableOpacity>
+          <EmptyState
+            icon="live"
+            title="Nenhum evento de venda"
+            hint="Adicione eventos manualmente ou gere dados demonstrativos para pré-visualizar."
+            action={
+              <Button
+                label="Gerar eventos demonstrativos"
+                icon="plus"
+                onPress={onGenerate}
+              />
+            }
+          />
         </View>
       )}
 
       {selectedEvent && (
         <View style={styles.fieldGroup}>
-          <Text style={styles.fieldLabel}>Titulo</Text>
+          <Text style={styles.fieldLabel}>Título</Text>
           <TextInput
             style={styles.input}
             value={selectedEvent.title}
@@ -458,7 +522,7 @@ function ContentTab({
               </TouchableOpacity>
             ))}
           </View>
-          <Text style={styles.fieldLabel}>Horario (ms)</Text>
+          <Text style={styles.fieldLabel}>Horário (ms)</Text>
           <TextInput
             style={styles.input}
             value={String(selectedEvent.timeMs)}
@@ -512,21 +576,22 @@ function ContentTab({
               </TouchableOpacity>
             ))}
           </View>
-          <TouchableOpacity
-            accessibilityRole="button"
+          <Button
+            label="Remover evento"
+            icon="trash"
+            variant="danger"
             accessibilityLabel="Remover evento selecionado"
-            style={styles.deleteEventBtn}
             onPress={() => onRemoveEvent(selectedEvent.id)}
-          >
-            <Text style={styles.deleteEventText}>Remover evento</Text>
-          </TouchableOpacity>
+            style={styles.deleteEventBtn}
+          />
         </View>
       )}
 
-      <TouchableOpacity
+      <Button
+        label="Adicionar evento manual"
+        icon="plus"
+        variant="secondary"
         style={styles.addEventBtn}
-        accessibilityRole="button"
-        accessibilityLabel="Adicionar evento manual"
         onPress={() => {
           const now = Date.now();
           onAddEvent({
@@ -540,9 +605,7 @@ function ContentTab({
             currency: "BRL",
           });
         }}
-      >
-        <Text style={styles.addEventText}>Adicionar evento manual</Text>
-      </TouchableOpacity>
+      />
     </View>
   );
 }
@@ -575,7 +638,7 @@ function AppearanceTab({
                 project.platformStyle === s && styles.optionTextActive,
               ]}
             >
-              {s === "ios-inspired" ? "Inspirado em iPhone" : s === "android-inspired" ? "Inspirado em Android" : "Generico"}
+              {s === "ios-inspired" ? "Inspirado em iPhone" : s === "android-inspired" ? "Inspirado em Android" : "Genérico"}
             </Text>
           </TouchableOpacity>
         ))}
@@ -608,10 +671,11 @@ function AppearanceTab({
 
       <Text style={styles.sectionTitle}>Fundo</Text>
       <View style={styles.optionRow}>
-        {(["solid", "gradient"] as const).map((k) => (
+        {BACKGROUND_KINDS.map((k) => (
           <TouchableOpacity
-             accessibilityRole="button"
+            accessibilityRole="button"
             key={k}
+            accessibilityLabel={`Fundo ${BACKGROUND_KIND_LABELS[k]}`}
             accessibilityState={{ selected: project.background.kind === k }}
             style={[
               styles.optionBtn,
@@ -629,13 +693,56 @@ function AppearanceTab({
                 project.background.kind === k && styles.optionTextActive,
               ]}
             >
-              {k === "solid" ? "Solido" : "Gradiente"}
+              {BACKGROUND_KIND_LABELS[k]}
             </Text>
           </TouchableOpacity>
         ))}
       </View>
+      {project.background.kind === "auto" ? (
+        <Text style={styles.fieldHint}>
+          O fundo acompanha o tema escolhido acima.
+        </Text>
+      ) : (
+        <View style={styles.swatchRow}>
+          {BACKGROUND_PRESETS.map((preset) => {
+            const selected =
+              project.background.color.toUpperCase() ===
+              preset.color.toUpperCase();
+            return (
+              <TouchableOpacity
+                key={preset.label}
+                accessibilityRole="button"
+                accessibilityLabel={`Cor de fundo ${preset.label}`}
+                accessibilityState={{ selected }}
+                style={[styles.swatch, selected && styles.swatchActive]}
+                onPress={() =>
+                  onUpdateProject({
+                    background: {
+                      kind: project.background.kind,
+                      color: preset.color,
+                      colorEnd: preset.colorEnd,
+                    },
+                  })
+                }
+              >
+                <View
+                  style={[styles.swatchFill, { backgroundColor: preset.color }]}
+                />
+                {project.background.kind === "gradient" && (
+                  <View
+                    style={[
+                      styles.swatchFill,
+                      { backgroundColor: preset.colorEnd },
+                    ]}
+                  />
+                )}
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      )}
 
-      <Text style={styles.sectionTitle}>Aviso de demonstracao</Text>
+      <Text style={styles.sectionTitle}>Aviso de demonstração</Text>
       <View style={styles.optionRow}>
         {(["top", "bottom"] as const).map((p) => (
           <TouchableOpacity
@@ -658,7 +765,7 @@ function AppearanceTab({
                 project.disclosure.position === p && styles.optionTextActive,
               ]}
             >
-              {p === "top" ? "Topo" : "Rodape"}
+              {p === "top" ? "Topo" : "Rodapé"}
             </Text>
           </TouchableOpacity>
         ))}
@@ -717,22 +824,23 @@ function TimelineTab({
 
       <Text style={styles.sectionTitle}>Controles</Text>
       <View style={styles.controlRow}>
-        <TouchableOpacity
+        <Button
+          label={playing ? "Pausar" : "Reproduzir"}
+          icon={playing ? "pause" : "play"}
+          variant="secondary"
           style={styles.controlBtn}
+          accessibilityLabel={
+            playing ? "Pausar pré-visualização" : "Reproduzir pré-visualização"
+          }
           onPress={playing ? onPause : onPlay}
-          accessibilityRole="button"
-          accessibilityLabel={playing ? "Pausar pré-visualização" : "Reproduzir pré-visualização"}
-        >
-          <Text style={styles.controlText}>{playing ? "Pausar" : "Play"}</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
+        />
+        <Button
+          label="Reiniciar"
+          variant="secondary"
           style={styles.controlBtn}
-          onPress={onRestart}
-          accessibilityRole="button"
           accessibilityLabel="Reiniciar pré-visualização"
-        >
-          <Text style={styles.controlText}>Reiniciar</Text>
-        </TouchableOpacity>
+          onPress={onRestart}
+        />
       </View>
 
       <Text style={styles.sectionTitle}>Eventos ({project.events.length})</Text>
@@ -756,6 +864,12 @@ function TimelineTab({
             <Text style={styles.timelineMeta}>
               {formatCurrency(e.amountCents * e.quantity, e.currency)} ·{" "}
               {(e.timeMs / 1000).toFixed(0)}s
+              {e.commissionBp !== undefined && e.commissionBp > 0
+                ? ` · comissão ${formatCurrency(
+                    commissionCents(e.amountCents, e.quantity, e.commissionBp),
+                    e.currency,
+                  )}`
+                : ""}
             </Text>
           </View>
         </TouchableOpacity>
@@ -763,8 +877,9 @@ function TimelineTab({
 
       {project.events.length > 1 && (
         <View style={styles.reorderRow}>
-          <TouchableOpacity
-            accessibilityRole="button"
+          <Button
+            label="Mover cima"
+            variant="secondary"
             accessibilityLabel="Mover evento selecionado para cima"
             style={styles.controlBtn}
             onPress={() => {
@@ -777,11 +892,10 @@ function TimelineTab({
               [arr[idx - 1], arr[idx]] = [arr[idx]!, arr[idx - 1]!];
               onReorder(arr);
             }}
-          >
-            <Text style={styles.controlText}>Mover cima</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            accessibilityRole="button"
+          />
+          <Button
+            label="Mover baixo"
+            variant="secondary"
             accessibilityLabel="Mover evento selecionado para baixo"
             style={styles.controlBtn}
             onPress={() => {
@@ -794,9 +908,7 @@ function TimelineTab({
               [arr[idx], arr[idx + 1]] = [arr[idx + 1]!, arr[idx]!];
               onReorder(arr);
             }}
-          >
-            <Text style={styles.controlText}>Mover baixo</Text>
-          </TouchableOpacity>
+          />
         </View>
       )}
     </View>
@@ -807,12 +919,17 @@ function ExportTab({
   project,
   onExport,
   exporting,
+  exportError,
+  onDeviceTest,
 }: {
   project: Project;
   onExport: () => void;
   exporting: boolean;
+  exportError: string | null;
+  onDeviceTest?: () => void;
 }) {
   const { jobs, enqueue, cancel } = useExportQueue();
+  const [gifShareError, setGifShareError] = useState<string | null>(null);
 
   const activeJob = jobs
     .slice()
@@ -820,32 +937,44 @@ function ExportTab({
     .find((j) => j.status === "render" || j.status === "encode" || j.status === "queued");
   const lastJob = jobs[jobs.length - 1];
 
+  const handleShareGif = useCallback(async (uri: string) => {
+    setGifShareError(null);
+    try {
+      await shareGif(uri);
+    } catch (err) {
+      setGifShareError(
+        err instanceof Error ? err.message : "Falha ao compartilhar o GIF.",
+      );
+    }
+  }, []);
+
   return (
     <View>
       <View style={styles.exportInfo}>
         <Text style={styles.exportTitle}>Exportar PNG</Text>
         <Text style={styles.exportDesc}>
-          Imagem 1080x1920 com aviso de demonstracao incorporado.
+          Imagem 1080x1920 com aviso de demonstração incorporado.
         </Text>
       </View>
-      <TouchableOpacity
-        style={[styles.exportBtn, exporting && styles.exportBtnDisabled]}
-        onPress={onExport}
-        disabled={exporting}
-        accessibilityRole="button"
+      <Button
+        label={exporting ? "Exportando..." : "Exportar e compartilhar"}
+        icon="share"
+        loading={exporting}
         accessibilityLabel="Exportar imagem PNG e compartilhar"
-        accessibilityState={{ disabled: exporting }}
-      >
-        <Text style={styles.exportBtnText}>
-          {exporting ? "Exportando..." : "Exportar e compartilhar"}
+        style={styles.exportBtn}
+        onPress={onExport}
+      />
+      {exportError && (
+        <Text style={styles.exportError} accessibilityRole="alert">
+          {exportError}
         </Text>
-      </TouchableOpacity>
+      )}
 
-      <View style={styles.exportInfo}>
+      <View style={[styles.exportInfo, styles.exportInfoSpaced]}>
         <Text style={styles.exportTitle}>Exportar GIF</Text>
         <Text style={styles.exportDesc}>
-          GIF animado 540x960 12fps com animacoes deterministas e aviso de
-          demonstracao em todos os frames.
+          GIF animado 540x960 12fps com animações deterministas e aviso de
+          demonstração em todos os frames.
         </Text>
       </View>
       {activeJob ? (
@@ -857,173 +986,210 @@ function ExportTab({
                   activeJob.progress * 100,
                 )}%`}
           </Text>
-          <TouchableOpacity
-            accessibilityRole="button"
+          <Button
+            label="Cancelar"
+            variant="danger"
             accessibilityLabel="Cancelar exportação"
-            style={[styles.exportBtn, styles.cancelBtn]}
+            style={styles.exportBtn}
             onPress={() => cancel(activeJob.id)}
-          >
-            <Text style={styles.exportBtnText}>Cancelar</Text>
-          </TouchableOpacity>
+          />
         </View>
       ) : (
-        <TouchableOpacity
+        <Button
+          label="Exportar GIF"
+          icon="share"
+          accessibilityLabel="Exportar GIF animado"
           style={styles.exportBtn}
           onPress={() => enqueue(project)}
-          accessibilityRole="button"
-          accessibilityLabel="Exportar GIF animado"
-        >
-          <Text style={styles.exportBtnText}>Exportar GIF</Text>
-        </TouchableOpacity>
+        />
       )}
       {lastJob?.status === "error" && (
-        <Text style={styles.exportDesc}>{lastJob.error}</Text>
-      )}
-      {lastJob?.status === "done" && (
-        <Text style={styles.exportDesc}>
-          GIF gerado com {lastJob.result?.frameCount ?? 0} frames (
-          {((lastJob.result?.durationMs ?? 0) / 1000).toFixed(1)}s).
+        <Text style={styles.exportError} accessibilityRole="alert">
+          {lastJob.error}
         </Text>
+      )}
+      {lastJob?.status === "cancelled" && (
+        <Text style={styles.exportDesc}>Exportação cancelada.</Text>
+      )}
+      {lastJob?.status === "done" && lastJob.result && (
+        <View>
+          <Text style={styles.exportDesc}>
+            GIF gerado com {lastJob.result.frameCount} frames (
+            {(lastJob.result.durationMs / 1000).toFixed(1)}s).
+          </Text>
+          <Button
+            label="Compartilhar GIF"
+            icon="share"
+            accessibilityLabel="Compartilhar GIF gerado"
+            style={styles.exportBtn}
+            onPress={() => handleShareGif(lastJob.result!.uri)}
+          />
+          {gifShareError && (
+            <Text style={styles.exportError} accessibilityRole="alert">
+              {gifShareError}
+            </Text>
+          )}
+        </View>
+      )}
+
+      {onDeviceTest && (
+        <>
+          <View style={[styles.exportInfo, styles.exportInfoSpaced]}>
+            <Text style={styles.exportTitle}>Testar no aparelho</Text>
+            <Text style={styles.exportDesc}>
+              Dispara notificações reais do sistema com os dados simulados do
+              projeto, respeitando os limites diários.
+            </Text>
+          </View>
+          <Button
+            label="Abrir teste no aparelho"
+            icon="live"
+            accessibilityLabel="Abrir teste de notificações no aparelho"
+            style={styles.exportBtn}
+            onPress={onDeviceTest}
+          />
+        </>
       )}
     </View>
   );
 }
 
+// Todo estilo de texto sai de `typography`, que carrega o fontFamily "Roboto".
+// Sem ele o Android da Motorola desenha com MotoRoboto e corta o fim das
+// palavras — foi nesta tela que o bug apareceu primeiro ("Voltar" -> "Volta").
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#FAFAFA" },
-  topBar: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingTop: 50,
-    paddingHorizontal: 16,
-    paddingBottom: 8,
-  },
-  backBtn: { fontSize: 16, color: "#5E5CE6" },
-  projectName: { fontSize: 17, fontWeight: "600", flex: 1, textAlign: "center" },
   previewContainer: {
+    // alignSelf centraliza o proprio container; alignItems so centralizaria os
+    // filhos. Sem ele o preview, agora mais estreito, encostaria na esquerda.
+    alignSelf: "center",
     alignItems: "center",
-    marginBottom: 8,
+    marginBottom: spacing.sm,
   },
+
   tabBar: {
     flexDirection: "row",
-    borderBottomWidth: 1,
-    borderBottomColor: "#EEE",
+    marginHorizontal: spacing.xl,
+    padding: spacing.xs,
+    borderRadius: radius.pill,
+    backgroundColor: colors.surface,
+    ...shadow.card,
   },
-  tab: { flex: 1, paddingVertical: 12, alignItems: "center" },
-  tabActive: { borderBottomWidth: 2, borderBottomColor: "#1A1A1A" },
-  tabText: { fontSize: 14, color: "#888" },
-  tabTextActive: { color: "#1A1A1A", fontWeight: "600" },
+  tab: {
+    flex: 1,
+    paddingVertical: spacing.md,
+    alignItems: "center",
+    borderRadius: radius.pill,
+  },
+  tabActive: { backgroundColor: colors.primary },
+  tabText: { ...typography.label, fontSize: 13 },
+  tabTextActive: { color: colors.textOnPrimary },
   tabContent: { flex: 1 },
+  tabLabelContainer: { flexDirection: "row", alignItems: "center", gap: spacing.xs },
+  disclosureIndicator: { width: 8, height: 8, borderRadius: radius.pill },
+  disclosureValid: { backgroundColor: colors.success },
+  disclosureInvalid: { backgroundColor: colors.danger },
+
   sectionTitle: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: "#999",
-    marginTop: 16,
-    marginBottom: 8,
+    ...typography.label,
+    marginTop: spacing.xl,
+    marginBottom: spacing.sm,
     textTransform: "uppercase",
+    letterSpacing: 0.6,
   },
-  optionRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+
+  optionRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
   optionBtn: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 20,
-    backgroundColor: "#E8E8E8",
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.lg,
+    borderRadius: radius.pill,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
-  optionBtnActive: { backgroundColor: "#1A1A1A" },
-  optionText: { fontSize: 14, color: "#666" },
-  optionTextActive: { color: "#FFF" },
-  fieldGroup: { marginTop: 16 },
-  fieldLabel: { fontSize: 13, color: "#888", marginBottom: 4, marginTop: 12 },
+  optionBtnActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+  optionText: { ...typography.body, fontSize: 14, color: colors.textMuted },
+  optionTextActive: { color: colors.textOnPrimary, fontWeight: "600" },
+
+  fieldGroup: { marginTop: spacing.lg },
+  fieldLabel: { ...typography.label, marginBottom: spacing.xs, marginTop: spacing.md },
+  fieldHint: {
+    ...typography.caption,
+    marginTop: spacing.md,
+    lineHeight: 19,
+  },
   input: {
+    ...typography.body,
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: "#DDD",
-    borderRadius: 10,
-    padding: 12,
-    fontSize: 15,
-    backgroundColor: "#FFF",
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.lg,
   },
-  genBtn: {
-    backgroundColor: "#5E5CE6",
-    padding: 14,
-    borderRadius: 12,
-    alignItems: "center",
-    marginBottom: 16,
+
+  swatchRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.md, marginTop: spacing.md },
+  swatch: {
+    width: 52,
+    height: 52,
+    borderRadius: radius.sm,
+    overflow: "hidden",
+    flexDirection: "column",
+    borderWidth: 2,
+    borderColor: "transparent",
   },
-  genBtnText: { color: "#FFF", fontWeight: "600", fontSize: 15 },
-  eventList: { marginBottom: 12 },
+  swatchActive: { borderColor: colors.primary },
+  swatchFill: { flex: 1, width: "100%" },
+
+  genBtn: { marginBottom: spacing.lg },
+  eventList: { marginBottom: spacing.md, gap: spacing.sm },
   eventItem: {
-    padding: 12,
-    borderRadius: 8,
-    backgroundColor: "#F5F5F5",
-    marginBottom: 6,
-  },
-  eventItemActive: { backgroundColor: "#E8E4FF" },
-  eventItemText: { fontSize: 14, color: "#333" },
-  deleteEventBtn: { marginTop: 12, padding: 12, alignItems: "center" },
-  deleteEventText: { color: "#E53935", fontSize: 14 },
-  addEventBtn: {
-    padding: 14,
-    borderRadius: 12,
+    padding: spacing.md,
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: "#DDD",
-    alignItems: "center",
-    marginTop: 8,
+    borderColor: colors.border,
   },
-  addEventText: { color: "#5E5CE6", fontSize: 15, fontWeight: "600" },
-  emptyContent: {
-    alignItems: "center",
-    paddingVertical: 32,
-    paddingHorizontal: 24,
+  eventItemActive: {
+    backgroundColor: colors.primarySoft,
+    borderColor: colors.primaryLight,
   },
-  emptyIllustration: { marginBottom: 16 },
-  emptyIcon: { fontSize: 56 },
-  emptyText: { fontSize: 18, fontWeight: "600", color: "#333", textAlign: "center" },
-  emptyHint: { fontSize: 14, color: "#888", marginTop: 8, textAlign: "center", lineHeight: 20 },
-  emptyActionBtn: {
-    marginTop: 20,
-    backgroundColor: "#5E5CE6",
-    paddingHorizontal: 24,
-    paddingVertical: 14,
-    borderRadius: 12,
-  },
-  emptyActionText: { color: "#FFF", fontWeight: "600", fontSize: 15 },
-  controlRow: { flexDirection: "row", gap: 8 },
-  controlBtn: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 8,
-    backgroundColor: "#E8E8E8",
-  },
-  controlText: { fontSize: 14, color: "#333" },
+  eventItemText: { ...typography.body, fontSize: 14 },
+  deleteEventBtn: { marginTop: spacing.md },
+  addEventBtn: { marginTop: spacing.sm },
+
+  emptyContent: { paddingVertical: spacing.xxl },
+
+  controlRow: { flexDirection: "row", gap: spacing.sm },
+  controlBtn: { flexGrow: 1, flexShrink: 1 },
+
   timelineItem: {
     flexDirection: "row",
     alignItems: "center",
-    padding: 12,
-    borderRadius: 8,
-    backgroundColor: "#F5F5F5",
-    marginBottom: 6,
-    gap: 12,
+    padding: spacing.md,
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    marginBottom: spacing.sm,
+    gap: spacing.md,
   },
-  timelineItemActive: { backgroundColor: "#E8E4FF" },
-  timelineIdx: { fontSize: 14, fontWeight: "600", color: "#999", width: 24 },
-  timelineText: { fontSize: 14, color: "#333" },
-  timelineMeta: { fontSize: 12, color: "#888", marginTop: 2 },
-  reorderRow: { flexDirection: "row", gap: 8, marginTop: 12 },
-  exportInfo: { marginBottom: 20 },
-  exportTitle: { fontSize: 20, fontWeight: "700" },
-  exportDesc: { fontSize: 14, color: "#888", marginTop: 8 },
-  exportBtn: {
-    backgroundColor: "#1A1A1A",
-    padding: 16,
-    borderRadius: 12,
-    alignItems: "center",
+  timelineItemActive: {
+    backgroundColor: colors.primarySoft,
+    borderColor: colors.primaryLight,
   },
-  exportBtnDisabled: { opacity: 0.5 },
-  cancelBtn: { backgroundColor: "#E53935", marginTop: 8 },
-  exportBtnText: { fontSize: 16, fontWeight: "600", color: "#FFF" },
-  tabLabelContainer: { flexDirection: "row", alignItems: "center", gap: 4 },
-  disclosureIndicator: { width: 8, height: 8, borderRadius: 4 },
-  disclosureValid: { backgroundColor: "#34C759" },
-  disclosureInvalid: { backgroundColor: "#FF3B30" },
+  timelineIdx: { ...typography.subtitle, fontSize: 14, color: colors.primary, width: 24 },
+  timelineText: { ...typography.body, fontSize: 14 },
+  timelineMeta: { ...typography.caption, fontSize: 12, marginTop: 2 },
+  reorderRow: { flexDirection: "row", gap: spacing.sm, marginTop: spacing.md },
+
+  exportInfo: { marginBottom: spacing.lg },
+  exportInfoSpaced: { marginTop: spacing.xxxl },
+  exportTitle: { ...typography.title },
+  exportDesc: { ...typography.caption, marginTop: spacing.sm, lineHeight: 19 },
+  exportBtn: { marginTop: spacing.sm },
+  exportError: {
+    ...typography.caption,
+    color: colors.danger,
+    marginTop: spacing.sm,
+  },
 });

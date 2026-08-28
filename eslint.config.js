@@ -1,10 +1,14 @@
 // https://docs.expo.dev/guides/using-eslint/
-const { defineConfig } = require('eslint/config');
-const expoConfig = require("eslint-config-expo/flat");
+//
+// O package.json declara "type": "module", entao este arquivo e ESM: com
+// `require` o ESLint quebrava no carregamento da config e o lint nunca rodava.
+// A extensao em "flat.js" e obrigatoria: em ESM o Node nao resolve diretorio.
+import { defineConfig } from "eslint/config";
+import expoConfig from "eslint-config-expo/flat.js";
 
-module.exports = defineConfig([
+export default defineConfig([
   expoConfig,
   {
-    ignores: ["dist/*"],
-  }
+    ignores: ["dist/*", "android/*", "ios/*"],
+  },
 ]);
