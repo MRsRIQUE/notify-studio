@@ -2,7 +2,7 @@ import * as Notifications from "expo-notifications";
 import { Platform } from "react-native";
 
 const CHANNEL_ID = "notify-studio-demo";
-const CHANNEL_NAME = "Demonstracoes NotifyStudio";
+const CHANNEL_NAME = "Vendas simuladas";
 
 export async function ensureAndroidChannel(): Promise<void> {
   if (Platform.OS !== "android") return;

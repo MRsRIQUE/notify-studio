@@ -6,11 +6,21 @@ import {
   StyleSheet,
   FlatList,
   Alert,
-  TextInput,
   Modal,
+  TextInput,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import {
+  Screen,
+  Header,
+  Card,
+  Button,
+  EmptyState,
+} from "../ui/components";
+import { Icon } from "../ui/Icon";
+import { colors, radius, spacing, typography } from "../ui/theme";
 import type { Project } from "../domain/types";
-import { DEFAULT_DISCLOSURE } from "../domain/types";
+import { DEFAULT_BACKGROUND, DEFAULT_DISCLOSURE } from "../domain/types";
 import {
   getAllProjects,
   saveProject,
@@ -18,7 +28,6 @@ import {
   duplicateProject,
 } from "../persistence/database";
 import { TEMPLATES } from "../domain/templates";
-import { generateEvents, DEFAULT_RULES } from "../domain/generator";
 
 function generateId(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -30,30 +39,33 @@ type Props = {
 };
 
 export function GalleryScreen({ onSelectProject, onNewProject }: Props) {
+  const insets = useSafeAreaInsets();
   const [projects, setProjects] = useState<Project[]>([]);
   const [showTemplates, setShowTemplates] = useState(false);
   const [renaming, setRenaming] = useState<Project | null>(null);
   const [renameText, setRenameText] = useState("");
-  const mountedRef = useRef(true);
+  const montado = useRef(true);
 
   useEffect(() => {
-    mountedRef.current = true;
-    return () => { mountedRef.current = false; };
+    montado.current = true;
+    return () => {
+      montado.current = false;
+    };
   }, []);
 
-  const loadProjects = useCallback(async () => {
+  const carregar = useCallback(async () => {
     const loaded = await getAllProjects();
-    if (mountedRef.current) setProjects(loaded);
+    if (montado.current) setProjects(loaded);
   }, []);
 
   useEffect(() => {
-    loadProjects();
-  }, [loadProjects]);
+    carregar();
+  }, [carregar]);
 
-  const handleDelete = (project: Project) => {
+  const excluir = (project: Project) => {
     Alert.alert(
       "Excluir projeto",
-      `Excluir "${project.name}"? Esta acao nao pode ser desfeita.`,
+      `Excluir "${project.name}"? Esta ação não pode ser desfeita.`,
       [
         { text: "Cancelar", style: "cancel" },
         {
@@ -61,24 +73,19 @@ export function GalleryScreen({ onSelectProject, onNewProject }: Props) {
           style: "destructive",
           onPress: async () => {
             await deleteProject(project.id);
-            await loadProjects();
+            await carregar();
           },
         },
       ],
     );
   };
 
-  const handleDuplicate = async (project: Project) => {
-    await duplicateProject(project.id, `${project.name} (copia)`);
-    await loadProjects();
+  const duplicar = async (project: Project) => {
+    await duplicateProject(project.id, `${project.name} (cópia)`);
+    await carregar();
   };
 
-  const handleRename = (project: Project) => {
-    setRenaming(project);
-    setRenameText(project.name);
-  };
-
-  const confirmRename = async () => {
+  const confirmarRenome = async () => {
     if (!renaming || !renameText.trim()) return;
     await saveProject({
       ...renaming,
@@ -86,10 +93,10 @@ export function GalleryScreen({ onSelectProject, onNewProject }: Props) {
       updatedAt: new Date().toISOString(),
     });
     setRenaming(null);
-    await loadProjects();
+    await carregar();
   };
 
-  const handleCreateFromTemplate = async (templateId: string) => {
+  const criarDeTemplate = async (templateId: string) => {
     const tpl = TEMPLATES.find((t) => t.id === templateId);
     if (!tpl) return;
     const now = new Date().toISOString();
@@ -100,257 +107,291 @@ export function GalleryScreen({ onSelectProject, onNewProject }: Props) {
       format: "vertical-9x16",
       platformStyle: "ios-inspired",
       theme: "light",
-      background: { kind: "solid", color: "#F2F2F7" },
+      background: DEFAULT_BACKGROUND,
       disclosure: DEFAULT_DISCLOSURE,
       timelineMode: tpl.timelineMode,
-      events: tpl.events.map((e) => ({
-        ...e,
-        id: `evt-${newId}-${e.id}`,
-      })),
+      events: tpl.events.map((e) => ({ ...e, id: `evt-${newId}-${e.id}` })),
       createdAt: now,
       updatedAt: now,
       schemaVersion: 1,
     };
     await saveProject(project);
     setShowTemplates(false);
-    await loadProjects();
+    await carregar();
     onSelectProject(project);
   };
 
   return (
-    <View style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>NotifyStudio</Text>
-        <Text style={styles.subtitle}>Seus projetos</Text>
-      </View>
+    <Screen>
+      <Header
+        title="Projetos"
+        subtitle={
+          projects.length > 0
+            ? `${projects.length} salvo${projects.length > 1 ? "s" : ""}`
+            : "Cenas salvas"
+        }
+      />
 
       {projects.length === 0 ? (
-        <View style={styles.empty}>
-          <View style={styles.emptyIllustration}>
-            <Text style={styles.emptyIcon}>📱</Text>
-          </View>
-          <Text style={styles.emptyText}>Nenhum projeto ainda</Text>
-          <Text style={styles.emptyHint}>
-            Crie seu primeiro projeto e comece a simular notificacoes de venda.
-          </Text>
-          <TouchableOpacity
-            style={styles.emptyActionBtn}
-            onPress={onNewProject}
-            accessibilityRole="button"
-            accessibilityLabel="Criar primeiro projeto"
-          >
-            <Text style={styles.emptyActionText}>Criar primeiro projeto</Text>
-          </TouchableOpacity>
-        </View>
+        <EmptyState
+          icon="folder"
+          title="Nenhum projeto ainda"
+          hint="Projetos guardam uma cena de notificação para você exportar como imagem ou GIF."
+          action={
+            <View style={styles.acoesVazio}>
+              <Button label="Criar projeto" icon="plus" onPress={onNewProject} />
+              <Button
+                label="Usar template"
+                variant="secondary"
+                onPress={() => setShowTemplates(true)}
+              />
+            </View>
+          }
+        />
       ) : (
         <FlatList
           data={projects}
           keyExtractor={(p) => p.id}
           contentContainerStyle={styles.list}
+          showsVerticalScrollIndicator={false}
           renderItem={({ item }) => (
-            <TouchableOpacity
-          accessibilityRole="button"
-              style={styles.card}
+            <Card
               onPress={() => onSelectProject(item)}
+              accessibilityLabel={`Abrir ${item.name}`}
             >
-              <View style={styles.cardContent}>
-                <Text style={styles.cardName} numberOfLines={1}>
-                  {item.name}
-                </Text>
-                <Text style={styles.cardMeta}>
-                  {item.events.length} evento(s) · {item.platformStyle}
-                </Text>
-                <Text style={styles.cardDate}>
-                  {new Date(item.updatedAt).toLocaleDateString("pt-BR")}
-                </Text>
-              </View>
-              <View style={styles.cardActions}>
-                <TouchableOpacity
-          accessibilityRole="button"
-                  style={styles.actionBtn}
-                  onPress={() => handleRename(item)}
-                >
-                  <Text style={styles.actionText}>Renomear</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-          accessibilityRole="button"
-                  style={styles.actionBtn}
-                  onPress={() => handleDuplicate(item)}
-                >
-                  <Text style={styles.actionText}>Duplicar</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-          accessibilityRole="button"
-                  style={styles.actionBtn}
-                  onPress={() => handleDelete(item)}
-                >
-                  <Text style={[styles.actionText, { color: "#E53935" }]}>
-                    Excluir
+              <View style={styles.cardTopo}>
+                <View style={styles.cardIcone}>
+                  <Icon name="folder" size={20} color={colors.primary} />
+                </View>
+                <View style={styles.cardCorpo}>
+                  <Text style={styles.cardNome} numberOfLines={1}>
+                    {item.name}
                   </Text>
-                </TouchableOpacity>
+                  <Text style={styles.cardMeta}>
+                    {item.events.length}{" "}
+                    {item.events.length === 1 ? "evento" : "eventos"} ·{" "}
+                    {new Date(item.updatedAt).toLocaleDateString("pt-BR")}
+                  </Text>
+                </View>
               </View>
-            </TouchableOpacity>
+              <View style={styles.cardAcoes}>
+                <AcaoCard
+                  label="Renomear"
+                  onPress={() => {
+                    setRenaming(item);
+                    setRenameText(item.name);
+                  }}
+                />
+                <AcaoCard label="Duplicar" onPress={() => duplicar(item)} />
+                <AcaoCard
+                  label="Excluir"
+                  destrutivo
+                  onPress={() => excluir(item)}
+                />
+              </View>
+            </Card>
           )}
         />
       )}
 
-      <View style={styles.footer}>
-        <TouchableOpacity
-          accessibilityRole="button"
-          style={styles.primaryBtn}
-          onPress={onNewProject}
-        >
-          <Text style={styles.primaryText}>Novo projeto</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          accessibilityRole="button"
-          style={styles.secondaryBtn}
-          onPress={() => setShowTemplates(true)}
-        >
-          <Text style={styles.secondaryText}>Usar template</Text>
-        </TouchableOpacity>
-      </View>
-
-      <Modal visible={showTemplates} transparent animationType="slide">
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Escolher template</Text>
-            {TEMPLATES.map((tpl) => (
-              <TouchableOpacity
-          accessibilityRole="button"
-                key={tpl.id}
-                style={styles.templateCard}
-                onPress={() => handleCreateFromTemplate(tpl.id)}
-              >
-                <Text style={styles.templateName}>{tpl.name}</Text>
-                <Text style={styles.templateDesc}>{tpl.description}</Text>
-              </TouchableOpacity>
-            ))}
-            <TouchableOpacity
-          accessibilityRole="button"
-              style={styles.cancelBtn}
-              onPress={() => setShowTemplates(false)}
-            >
-              <Text style={styles.cancelText}>Cancelar</Text>
-            </TouchableOpacity>
-          </View>
+      {projects.length > 0 && (
+        <View style={styles.rodape}>
+          <Button
+            label="Novo projeto"
+            icon="plus"
+            onPress={onNewProject}
+            style={{ flex: 1 }}
+          />
+          <Button
+            label="Template"
+            variant="secondary"
+            onPress={() => setShowTemplates(true)}
+            style={{ flex: 1 }}
+          />
         </View>
-      </Modal>
+      )}
 
-      <Modal visible={!!renaming} transparent animationType="slide">
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Renomear projeto</Text>
+      {/* Renomear */}
+      <Modal visible={renaming !== null} animationType="fade" transparent>
+        <View style={styles.modalFundo}>
+          <View style={styles.dialogo}>
+            <Text style={styles.dialogoTitulo}>Renomear projeto</Text>
             <TextInput
               style={styles.input}
               value={renameText}
               onChangeText={setRenameText}
               autoFocus
-              placeholder="Nome do projeto"
+              placeholderTextColor={colors.textMuted}
             />
-            <View style={styles.modalActions}>
-              <TouchableOpacity
-          accessibilityRole="button"
-                style={styles.cancelBtn}
+            <View style={styles.dialogoAcoes}>
+              <Button
+                label="Cancelar"
+                variant="secondary"
                 onPress={() => setRenaming(null)}
-              >
-                <Text style={styles.cancelText}>Cancelar</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-          accessibilityRole="button"
-                style={styles.primaryBtn}
-                onPress={confirmRename}
-              >
-                <Text style={styles.primaryText}>Salvar</Text>
-              </TouchableOpacity>
+                style={{ flex: 1 }}
+              />
+              <Button
+                label="Salvar"
+                onPress={confirmarRenome}
+                style={{ flex: 1 }}
+              />
             </View>
           </View>
         </View>
       </Modal>
-    </View>
+
+      {/* Templates */}
+      <Modal visible={showTemplates} animationType="slide" transparent>
+        <View style={styles.modalFundoBaixo}>
+          <View
+            style={[
+              styles.folha,
+              { paddingBottom: spacing.xl + insets.bottom },
+            ]}
+          >
+            <View style={styles.puxador} />
+            <Text style={styles.dialogoTitulo}>Escolha um template</Text>
+            <FlatList
+              data={TEMPLATES}
+              keyExtractor={(t) => t.id}
+              contentContainerStyle={{ gap: spacing.md, paddingTop: spacing.md }}
+              showsVerticalScrollIndicator={false}
+              renderItem={({ item }) => (
+                <Card
+                  onPress={() => criarDeTemplate(item.id)}
+                  accessibilityLabel={`Usar template ${item.name}`}
+                >
+                  <Text style={styles.cardNome}>{item.name}</Text>
+                  <Text style={styles.cardMeta}>
+                    {item.events.length}{" "}
+                    {item.events.length === 1 ? "evento" : "eventos"}
+                  </Text>
+                </Card>
+              )}
+            />
+            <Button
+              label="Fechar"
+              variant="secondary"
+              onPress={() => setShowTemplates(false)}
+              style={{ marginTop: spacing.lg }}
+            />
+          </View>
+        </View>
+      </Modal>
+    </Screen>
+  );
+}
+
+function AcaoCard({
+  label,
+  onPress,
+  destrutivo,
+}: {
+  label: string;
+  onPress: () => void;
+  destrutivo?: boolean;
+}) {
+  return (
+    <TouchableOpacity
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      style={styles.acaoBtn}
+      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+    >
+      <Text style={[styles.acaoTexto, destrutivo && styles.acaoDestrutiva]}>
+        {label}
+      </Text>
+    </TouchableOpacity>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#FAFAFA" },
-  header: { paddingTop: 60, paddingHorizontal: 20, paddingBottom: 16 },
-  title: { fontSize: 28, fontWeight: "700", color: "#1A1A1A" },
-  subtitle: { fontSize: 14, color: "#888", marginTop: 4 },
-  empty: { flex: 1, justifyContent: "center", alignItems: "center", paddingHorizontal: 32 },
-  emptyIllustration: { marginBottom: 16 },
-  emptyIcon: { fontSize: 64 },
-  emptyText: { fontSize: 20, fontWeight: "600", color: "#333", textAlign: "center" },
-  emptyHint: { fontSize: 15, color: "#888", marginTop: 8, textAlign: "center", lineHeight: 22 },
-  emptyActionBtn: {
-    marginTop: 24,
-    backgroundColor: "#5E5CE6",
-    paddingHorizontal: 24,
-    paddingVertical: 14,
-    borderRadius: 12,
+  list: {
+    paddingHorizontal: spacing.xl,
+    paddingBottom: spacing.lg,
+    gap: spacing.md,
   },
-  emptyActionText: { color: "#FFF", fontWeight: "600", fontSize: 16 },
-  list: { padding: 20, gap: 12 },
-  card: {
-    backgroundColor: "#FFF",
-    borderRadius: 12,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: "#EEE",
-  },
-  cardContent: { marginBottom: 8 },
-  cardName: { fontSize: 17, fontWeight: "600", color: "#1A1A1A" },
-  cardMeta: { fontSize: 13, color: "#888", marginTop: 4 },
-  cardDate: { fontSize: 12, color: "#AAA", marginTop: 2 },
-  cardActions: { flexDirection: "row", gap: 12 },
-  actionBtn: { paddingVertical: 4 },
-  actionText: { fontSize: 13, color: "#5E5CE6" },
-  footer: { padding: 20, gap: 10 },
-  primaryBtn: {
-    backgroundColor: "#1A1A1A",
-    padding: 16,
-    borderRadius: 12,
+  cardTopo: { flexDirection: "row", alignItems: "center", gap: spacing.md },
+  cardIcone: {
+    width: 44,
+    height: 44,
+    borderRadius: radius.md,
+    backgroundColor: colors.primarySoft,
     alignItems: "center",
+    justifyContent: "center",
   },
-  primaryText: { fontSize: 16, fontWeight: "600", color: "#FFF" },
-  secondaryBtn: {
-    backgroundColor: "#FFF",
-    padding: 16,
-    borderRadius: 12,
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "#DDD",
+  cardCorpo: { flex: 1 },
+  cardNome: { ...typography.subtitle, fontSize: 16 },
+  cardMeta: { ...typography.caption, marginTop: 2 },
+  cardAcoes: {
+    flexDirection: "row",
+    gap: spacing.xl,
+    marginTop: spacing.lg,
+    paddingTop: spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
   },
-  secondaryText: { fontSize: 16, fontWeight: "600", color: "#333" },
-  modalOverlay: {
+  acaoBtn: { paddingVertical: spacing.xs },
+  acaoTexto: { ...typography.button, fontSize: 13, color: colors.primary },
+  acaoDestrutiva: { color: colors.danger },
+
+  acoesVazio: { gap: spacing.md },
+  rodape: {
+    flexDirection: "row",
+    gap: spacing.md,
+    paddingHorizontal: spacing.xl,
+    paddingBottom: spacing.lg,
+  },
+
+  modalFundo: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.5)",
+    backgroundColor: "rgba(42,37,69,0.45)",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: spacing.xl,
+  },
+  modalFundoBaixo: {
+    flex: 1,
+    backgroundColor: "rgba(42,37,69,0.45)",
     justifyContent: "flex-end",
   },
-  modalContent: {
-    backgroundColor: "#FFF",
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    padding: 24,
-    maxHeight: "80%",
+  dialogo: {
+    width: "100%",
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    padding: spacing.xl,
   },
-  modalTitle: { fontSize: 20, fontWeight: "700", marginBottom: 16 },
-  templateCard: {
-    padding: 16,
-    borderRadius: 12,
-    backgroundColor: "#F5F5F5",
-    marginBottom: 10,
+  dialogoTitulo: { ...typography.title },
+  dialogoAcoes: {
+    flexDirection: "row",
+    gap: spacing.md,
+    marginTop: spacing.xl,
   },
-  templateName: { fontSize: 16, fontWeight: "600" },
-  templateDesc: { fontSize: 13, color: "#888", marginTop: 4 },
-  cancelBtn: { padding: 16, alignItems: "center", marginTop: 8 },
-  cancelText: { fontSize: 16, color: "#888" },
+  folha: {
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: radius.xl,
+    borderTopRightRadius: radius.xl,
+    paddingHorizontal: spacing.xl,
+    paddingTop: spacing.md,
+    maxHeight: "82%",
+  },
+  puxador: {
+    width: 44,
+    height: 4,
+    borderRadius: radius.pill,
+    backgroundColor: colors.border,
+    alignSelf: "center",
+    marginBottom: spacing.lg,
+  },
   input: {
+    ...typography.body,
+    backgroundColor: colors.surfaceAlt,
     borderWidth: 1,
-    borderColor: "#DDD",
-    borderRadius: 10,
-    padding: 14,
-    fontSize: 16,
-    marginBottom: 16,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.lg,
+    marginTop: spacing.lg,
   },
-  modalActions: { flexDirection: "row", gap: 12 },
 });

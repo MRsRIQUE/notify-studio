@@ -1,6 +1,6 @@
-import { Skia } from "@shopify/react-native-skia";
 import { File, Paths } from "expo-file-system";
-import * as Sharing from "expo-sharing";
+import { shareFile } from "./share";
+import { makeRenderSurface } from "../rendering/surface";
 import {
   assertDisclosureVisible,
   drawNotification,
@@ -18,13 +18,7 @@ export async function exportPng(spec: RenderSpec): Promise<string> {
   };
   assertDisclosureVisible(exportSpec);
 
-  const surface = Skia.Surface.MakeOffscreen(EXPORT_WIDTH, EXPORT_HEIGHT);
-  if (!surface) {
-    throw new Error(
-      "Superficie de renderizacao indisponivel (GPU necessaria). " +
-        "Exportacao PNG requer aparelho com GPU real.",
-    );
-  }
+  const surface = makeRenderSurface(EXPORT_WIDTH, EXPORT_HEIGHT);
   const canvas = surface.getCanvas();
   drawNotification(canvas, exportSpec);
   const image = surface.makeImageSnapshot();
@@ -38,8 +32,8 @@ export async function exportPng(spec: RenderSpec): Promise<string> {
   if (bytes.byteLength < MIN_PNG_BYTES) {
     throw new Error(
       `PNG gerado suspeitamente pequeno (${bytes.byteLength} bytes, ` +
-        `minimo esperado ~${MIN_PNG_BYTES}). Provavelmente a superficie ` +
-        `de renderizacao nao possui GPU. Tente em aparelho fisico.`,
+        `minimo esperado ~${MIN_PNG_BYTES}). A renderizacao provavelmente ` +
+        `saiu vazia.`,
     );
   }
 
@@ -48,13 +42,6 @@ export async function exportPng(spec: RenderSpec): Promise<string> {
   return file.uri;
 }
 
-export async function sharePng(uri: string): Promise<void> {
-  const available = await Sharing.isAvailableAsync();
-  if (!available) {
-    throw new Error("Compartilhamento não disponível neste aparelho.");
-  }
-  await Sharing.shareAsync(uri, {
-    mimeType: "image/png",
-    dialogTitle: "Demonstração — dados simulados",
-  });
+export function sharePng(uri: string): Promise<void> {
+  return shareFile(uri, "image/png");
 }

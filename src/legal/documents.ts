@@ -1,4 +1,4 @@
-// Documentos legais estaticos (pt-BR) do NotifyStudio.
+// Documentos legais estaticos (pt-BR) do TTS.
 // Conteudo: sem coleta de dados, offline-first, dados simulados, aviso de
 // uso etico. Alteracoes de conteudo exigem bump da versao do termo para
 // forcar novo aceite (guardrail do handoff).
@@ -22,7 +22,7 @@ export const PRIVACY_POLICY: LegalDocument = {
     {
       heading: "Resumo",
       body:
-        "O NotifyStudio não coleta, armazena nem transmite dados pessoais. " +
+        "O TTS não coleta, armazena nem transmite dados pessoais. " +
         "Todo o conteúdo produzido no aplicativo permanece apenas no seu aparelho.",
     },
     {
@@ -44,7 +44,7 @@ export const PRIVACY_POLICY: LegalDocument = {
       body:
         "Como os dados ficam apenas no aparelho, você pode excluí-los a " +
         "qualquer momento desinstalando o aplicativo ou removendo os projetos " +
-        "dentro da galeria do NotifyStudio.",
+        "dentro da galeria do TTS.",
     },
     {
       heading: "Contato",
@@ -64,7 +64,7 @@ export const TERMS_OF_USE: LegalDocument = {
     {
       heading: "Natureza do aplicativo",
       body:
-        "O NotifyStudio é uma ferramenta de criação de demonstrações visuais " +
+        "O TTS é uma ferramenta de criação de demonstrações visuais " +
         "de notificações de vendas. Todo o conteúdo gerado é fictício e " +
         "identificado como simulação.",
     },

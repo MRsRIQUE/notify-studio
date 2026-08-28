@@ -1,13 +1,14 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { StatusBar } from "expo-status-bar";
+import { SafeAreaProvider } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { OnboardingScreen } from "./src/screens/OnboardingScreen";
-import { GalleryScreen } from "./src/screens/GalleryScreen";
+import { MainTabs } from "./src/screens/MainTabs";
 import { EditorScreen } from "./src/screens/EditorScreen";
 import { DeviceTestScreen } from "./src/screens/DeviceTestScreen";
 import { initDb } from "./src/persistence/database";
 import type { Project } from "./src/domain/types";
-import { DEFAULT_DISCLOSURE } from "./src/domain/types";
+import { DEFAULT_BACKGROUND, DEFAULT_DISCLOSURE } from "./src/domain/types";
 import { generateEvents, DEFAULT_RULES } from "./src/domain/generator";
 import { TermsScreen } from "./src/screens/TermsScreen";
 import {
@@ -70,7 +71,7 @@ export default function App() {
       format: "vertical-9x16",
       platformStyle: "ios-inspired",
       theme: "light",
-      background: { kind: "solid", color: "#F2F2F7" },
+      background: DEFAULT_BACKGROUND,
       disclosure: DEFAULT_DISCLOSURE,
       timelineMode: "single",
       events,
@@ -81,52 +82,65 @@ export default function App() {
     setScreen({ kind: "editor", project });
   }, []);
 
-  switch (screen.kind) {
-    case "loading":
-      return null;
-    case "terms":
-      return (
-        <>
-          <StatusBar style="dark" />
-          <TermsScreen onAccept={handleTermsAccepted} />
-        </>
-      );
-    case "onboarding":
-      return (
-        <>
-          <StatusBar style="dark" />
-          <OnboardingScreen onComplete={handleOnboardingComplete} />
-        </>
-      );
-    case "gallery":
-      return (
-        <>
-          <StatusBar style="dark" />
-          <GalleryScreen
-            onSelectProject={(p) => setScreen({ kind: "editor", project: p })}
-            onNewProject={handleNewProject}
-          />
-        </>
-      );
-    case "editor":
-      return (
-        <>
-          <StatusBar style="dark" />
-          <EditorScreen
-            project={screen.project}
-            onBack={() => setScreen({ kind: "gallery" })}
-          />
-        </>
-      );
-    case "device-test":
-      return (
-        <>
-          <StatusBar style="dark" />
-          <DeviceTestScreen
-            project={screen.project}
-            onBack={() => setScreen({ kind: "gallery" })}
-          />
-        </>
-      );
+  // Um unico SafeAreaProvider na raiz: remontar o provider a cada troca de
+  // tela faria os insets serem remedidos, causando piscada de layout.
+  return <SafeAreaProvider>{renderScreen()}</SafeAreaProvider>;
+
+  function renderScreen() {
+    switch (screen.kind) {
+      case "loading":
+        return null;
+      case "terms":
+        return (
+          <>
+            <StatusBar style="dark" />
+            <TermsScreen onAccept={handleTermsAccepted} />
+          </>
+        );
+      case "onboarding":
+        return (
+          <>
+            <StatusBar style="dark" />
+            <OnboardingScreen onComplete={handleOnboardingComplete} />
+          </>
+        );
+      case "gallery":
+        return (
+          <>
+            <StatusBar style="dark" />
+            <MainTabs
+              onSelectProject={(p) => setScreen({ kind: "editor", project: p })}
+              onNewProject={handleNewProject}
+            />
+          </>
+        );
+      case "editor":
+        return (
+          <>
+            <StatusBar style="dark" />
+            <EditorScreen
+              project={screen.project}
+              onBack={() => setScreen({ kind: "gallery" })}
+              onDeviceTest={(p) =>
+                setScreen({ kind: "device-test", project: p })
+              }
+            />
+          </>
+        );
+      case "device-test":
+        return (
+          <>
+            <StatusBar style="dark" />
+            <DeviceTestScreen
+              project={screen.project}
+              // Volta para o editor com o projeto no estado em que foi enviado,
+              // preservando as edicoes feitas antes do teste.
+              onBack={() =>
+                setScreen({ kind: "editor", project: screen.project })
+              }
+            />
+          </>
+        );
+    }
   }
 }

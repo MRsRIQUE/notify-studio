@@ -3,8 +3,8 @@ import { createHash } from "node:crypto";
 import { drawNotification } from "../rendering/drawNotification";
 import type { RenderSpec } from "../rendering/drawNotification";
 import { TEMPLATES } from "../domain/templates";
-import type { PlatformStyle } from "../domain/types";
-import { DEFAULT_DISCLOSURE } from "../domain/types";
+import type { BackgroundConfig, PlatformStyle } from "../domain/types";
+import { DEFAULT_BACKGROUND, DEFAULT_DISCLOSURE } from "../domain/types";
 
 vi.mock("@shopify/react-native-skia", () => {
   class MockFont {
@@ -20,11 +20,15 @@ vi.mock("@shopify/react-native-skia", () => {
   class MockPaint {
     color = "";
     alpha = 1;
+    shader: unknown = null;
     setColor(c: string) {
       this.color = c;
     }
     setAlphaf(a: number) {
       this.alpha = a;
+    }
+    setShader(sh: unknown) {
+      this.shader = sh;
     }
   }
   return {
@@ -47,12 +51,31 @@ vi.mock("@shopify/react-native-skia", () => {
         ry: number,
       ) => ({ rect, rx, ry }),
       Surface: { MakeOffscreen: () => null },
+      Point: (x: number, y: number) => ({ x, y }),
+      Shader: {
+        MakeLinearGradient: (
+          start: { x: number; y: number },
+          end: { x: number; y: number },
+          colors: string[],
+          pos: number[] | null,
+          mode: number,
+        ) => ({ kind: "linear-gradient", start, end, colors, pos, mode }),
+      },
     },
+    TileMode: { Clamp: 0, Repeat: 1, Mirror: 2, Decal: 3 },
   };
 });
 
 type Op =
-  | { op: "rect"; x: number; y: number; w: number; h: number; color: string }
+  | {
+      op: "rect";
+      x: number;
+      y: number;
+      w: number;
+      h: number;
+      color: string;
+      shader?: unknown;
+    }
   | {
       op: "rrect";
       x: number;
@@ -68,7 +91,10 @@ type Op =
 
 class RecordingCanvas {
   ops: Op[] = [];
-  drawRect(rect: { x: number; y: number; width: number; height: number }, paint: { color: string }) {
+  drawRect(
+    rect: { x: number; y: number; width: number; height: number },
+    paint: { color: string; shader?: unknown },
+  ) {
     this.ops.push({
       op: "rect",
       x: rect.x,
@@ -76,6 +102,7 @@ class RecordingCanvas {
       w: rect.width,
       h: rect.height,
       color: paint.color,
+      ...(paint.shader ? { shader: paint.shader } : {}),
     });
   }
   drawRRect(
@@ -134,6 +161,7 @@ function render(
   theme: "light" | "dark",
   width: number,
   height: number,
+  background?: BackgroundConfig,
 ): string {
   const canvas = new RecordingCanvas();
   drawNotification(canvas as never, {
@@ -143,6 +171,7 @@ function render(
     style,
     theme,
     disclosure: DEFAULT_DISCLOSURE,
+    background,
   });
   return hashOps(canvas.ops);
 }
@@ -176,6 +205,51 @@ describe("golden frames do drawNotification", () => {
     const light = render(event, "generic", "light", 1080, 1920);
     const dark = render(event, "generic", "dark", 1080, 1920);
     expect(light).not.toBe(dark);
+  });
+
+  it("fundo 'auto' equivale a nao informar fundo (paleta do tema)", () => {
+    const event = TEMPLATES[0]!.events[0]!;
+    const semFundo = render(event, "generic", "dark", 1080, 1920);
+    const auto = render(event, "generic", "dark", 1080, 1920, DEFAULT_BACKGROUND);
+    expect(auto).toBe(semFundo);
+  });
+
+  it("fundo solido sobrescreve a cor da paleta", () => {
+    const event = TEMPLATES[0]!.events[0]!;
+    const auto = render(event, "generic", "light", 1080, 1920, DEFAULT_BACKGROUND);
+    const solido = render(event, "generic", "light", 1080, 1920, {
+      kind: "solid",
+      color: "#FF6B6B",
+    });
+    expect(solido).not.toBe(auto);
+  });
+
+  it("fundo gradiente difere do solido de mesma cor inicial", () => {
+    const event = TEMPLATES[0]!.events[0]!;
+    const solido = render(event, "generic", "light", 1080, 1920, {
+      kind: "solid",
+      color: "#FF6B6B",
+    });
+    const gradiente = render(event, "generic", "light", 1080, 1920, {
+      kind: "gradient",
+      color: "#FF6B6B",
+      colorEnd: "#B32D2D",
+    });
+    expect(gradiente).not.toBe(solido);
+  });
+
+  it("gradiente sem colorEnd degrada para as duas paradas na mesma cor", () => {
+    const event = TEMPLATES[0]!.events[0]!;
+    const semFim = render(event, "generic", "light", 1080, 1920, {
+      kind: "gradient",
+      color: "#FF6B6B",
+    });
+    const comFimIgual = render(event, "generic", "light", 1080, 1920, {
+      kind: "gradient",
+      color: "#FF6B6B",
+      colorEnd: "#FF6B6B",
+    });
+    expect(semFim).toBe(comFimIgual);
   });
 
   it("estilos diferentes produzem hashes diferentes", () => {

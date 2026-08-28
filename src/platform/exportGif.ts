@@ -1,4 +1,4 @@
-import { Skia, ColorType, AlphaType } from "@shopify/react-native-skia";
+import { ColorType, AlphaType } from "@shopify/react-native-skia";
 import { File, Directory, Paths } from "expo-file-system";
 import type { Project } from "../domain/types";
 import type { VisualSpec } from "../rendering/drawNotification";
@@ -7,6 +7,7 @@ import { composeFrame } from "../rendering/frameComposer";
 import { frameTimeMs, videoDurationMs } from "../domain/timeline";
 import { encodeGif, rgbaToIndexed, type GifFrame } from "../rendering/gifEncoder";
 import { ExportCancelledError } from "./exportErrors";
+import { makeRenderSurface } from "../rendering/surface";
 
 export const GIF_WIDTH = 540;
 export const GIF_HEIGHT = 960;
@@ -35,6 +36,7 @@ export function buildGifSpec(project: Project): VisualSpec {
     style: project.platformStyle,
     theme: project.theme,
     disclosure: project.disclosure,
+    background: project.background,
   };
 }
 
@@ -43,10 +45,7 @@ function renderFramePixels(
   spec: VisualSpec,
   timeMs: number,
 ): Uint8Array {
-  const surface = Skia.Surface.MakeOffscreen(spec.width, spec.height);
-  if (!surface) {
-    throw new Error("Nao foi possivel criar a superficie de renderizacao.");
-  }
+  const surface = makeRenderSurface(spec.width, spec.height);
   const canvas = surface.getCanvas();
   composeFrame(
     canvas,
@@ -120,8 +119,8 @@ export async function exportGif(
     if (bytes.byteLength < MIN_GIF_BYTES) {
       throw new Error(
         `GIF gerado suspeitamente pequeno (${bytes.byteLength} bytes, ` +
-          `minimo esperado ~${MIN_GIF_BYTES}). Provavelmente a superficie ` +
-          `de renderizacao nao possui GPU. Tente em aparelho fisico.`,
+          `minimo esperado ~${MIN_GIF_BYTES}). A renderizacao provavelmente ` +
+          `saiu vazia.`,
       );
     }
 

@@ -21,6 +21,7 @@ export function composeFrame(
     style: project.platformStyle,
     theme: project.theme,
     disclosure: project.disclosure,
+    background: project.background,
   };
   drawBackground(canvas, base);
   const anims = activeEventAnims(project.events, timeMs);

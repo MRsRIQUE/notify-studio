@@ -1,10 +1,16 @@
 import {
   matchFont,
   Skia,
+  TileMode,
   type SkCanvas,
   type SkFont,
 } from "@shopify/react-native-skia";
-import type { DisclosureConfig, PlatformStyle, SaleEvent } from "../domain/types";
+import type {
+  BackgroundConfig,
+  DisclosureConfig,
+  PlatformStyle,
+  SaleEvent,
+} from "../domain/types";
 import type { CardAnim } from "../domain/animation";
 import { DISCLOSURE_TEXT, validateDisclosure } from "../domain/disclosure";
 import { eventBody } from "../domain/currency";
@@ -19,6 +25,8 @@ export type VisualSpec = {
   style: PlatformStyle;
   theme: "light" | "dark";
   disclosure: DisclosureConfig;
+  // Ausente ou kind "auto" => usa o fundo da paleta do tema.
+  background?: BackgroundConfig;
 };
 
 export type RenderSpec = VisualSpec & {
@@ -40,13 +48,43 @@ export function disclosureBarMetrics(spec: VisualSpec): {
   return { barY, barHeight };
 }
 
+// Resolve o fundo efetivo: "auto" (ou ausente) cai na paleta do tema.
+export function resolveBackground(spec: VisualSpec): BackgroundConfig {
+  const p = palette(spec.style, spec.theme);
+  const bg = spec.background;
+  if (!bg || bg.kind === "auto") return { kind: "solid", color: p.bg };
+  if (bg.kind === "gradient") {
+    return { kind: "gradient", color: bg.color, colorEnd: bg.colorEnd ?? bg.color };
+  }
+  return { kind: "solid", color: bg.color };
+}
+
+function fillBackground(canvas: SkCanvas, spec: VisualSpec): void {
+  const { width, height } = spec;
+  const resolved = resolveBackground(spec);
+  const paint = Skia.Paint();
+
+  if (resolved.kind === "gradient") {
+    const shader = Skia.Shader.MakeLinearGradient(
+      Skia.Point(0, 0),
+      Skia.Point(0, height),
+      [Skia.Color(resolved.color), Skia.Color(resolved.colorEnd ?? resolved.color)],
+      null,
+      TileMode.Clamp,
+    );
+    paint.setShader(shader);
+  } else {
+    paint.setColor(Skia.Color(resolved.color));
+  }
+
+  canvas.drawRect(Skia.XYWHRect(0, 0, width, height), paint);
+}
+
 export function drawBackground(canvas: SkCanvas, spec: VisualSpec): void {
-  const { width, height, style, theme } = spec;
+  const { width, style, theme } = spec;
   const p = palette(style, theme);
 
-  const bg = Skia.Paint();
-  bg.setColor(Skia.Color(p.bg));
-  canvas.drawRect(Skia.XYWHRect(0, 0, width, height), bg);
+  fillBackground(canvas, spec);
 
   const { barY, barHeight } = disclosureBarMetrics(spec);
   const barPaint = Skia.Paint();

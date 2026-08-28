@@ -43,7 +43,10 @@ src/
 
 ## Gate de validação
 
-- **Android (emulador)**: FECHADO — fluxo completo validado, GIF 120 frames extraído e verificado
+- **Android (emulador)**: REABERTO — o fluxo de export mudou (compartilhamento de
+  GIF, fundo do projeto renderizado, entrada para o teste no aparelho) e precisa
+  ser revalidado em instalação limpa: Termos → Onboarding → Galeria → template →
+  Editor → export PNG → export GIF → **compartilhar GIF** → teste no aparelho
 - **Android (físico) + iOS**: PENDENTE — necessário antes de submeter as lojas
 - **MP4 H.264**: BACKLOG — ffmpeg-kit removido (Arthenica discontinued), reintegração via expo-video mapeada para versão seguinte
 
